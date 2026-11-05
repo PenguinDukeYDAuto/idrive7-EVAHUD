@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVA HUD 全屏警报样稿</title>
+<style>
+@font-face { font-family: "MatisseEB"; src: url("/files/MatissePro-EB.otf") format("opentype"); font-display: block; }
+@font-face { font-family: "BarlowC"; src: url("/files/BarlowCondensed-Bold.ttf") format("truetype"); font-weight: 700; font-display: block; }
+@font-face { font-family: "BarlowC"; src: url("/files/BarlowCondensed-SemiBold.ttf") format("truetype"); font-weight: 600; font-display: block; }
+:root {
+  --bg: #0c0a08; --panel: #17130f; --line: #30281f; --ink: #f1eadf; --dim: #a2968a; --amber: #ff8800;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif; padding: 20px 16px 40px; }
+main { max-width: 1680px; margin: 0 auto; }
+h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; letter-spacing: .02em; }
+.sub { margin: 0 0 16px; color: var(--dim); font-size: 14px; line-height: 1.6; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 16px; position: sticky; top: 0; z-index: 5;
+  background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.seg > span { font-size: 12px; color: var(--dim); margin-right: 2px; }
+button.pill { appearance: none; background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 7px 11px; font: inherit; font-size: 14px; cursor: pointer; }
+button.pill:hover { border-color: #5c4a34; }
+button.pill.on { background: var(--amber); border-color: var(--amber); color: #120a00; font-weight: 700; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer; }
+.card:hover { border-color: #5c4a34; }
+.card.selected { border-color: var(--amber); box-shadow: 0 0 0 2px var(--amber); }
+.card canvas { display: block; width: 100%; height: auto; aspect-ratio: 800 / 480; background: #000; }
+.meta { display: flex; gap: 12px; padding: 12px 14px 14px; align-items: flex-start; }
+.letter { flex: none; width: 28px; height: 28px; border-radius: 6px; background: #2a2118; color: var(--amber);
+  display: grid; place-items: center; font-weight: 800; }
+.card.selected .letter { background: var(--amber); color: #120a00; }
+.meta h3 { margin: 0 0 3px; font-size: 16px; }
+.meta p { margin: 0; color: var(--dim); font-size: 14px; line-height: 1.55; }
+.note { margin: 18px 0 0; color: var(--dim); font-size: 13px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<main>
+  <h1>全屏警报，哪一版最像 EVA？</h1>
+  <p class="sub">每块画面都是 HUD 真实的 800×480，并按玻璃上的方式叠加光：黑色等于透明。前车放在正中间，方便你判断挡不挡视线。点一下喜欢的卡片，也可以直接告诉我想怎么混搭。</p>
+
+  <div class="bar">
+    <div class="seg" id="alerts"><span>警报</span></div>
+    <div class="seg" id="scenes"><span>背景</span></div>
+  </div>
+
+  <div class="cards">
+    <div class="card" data-choice="a-faithful" onclick="toggleSelect(this)">
+      <canvas width="800" height="480" data-dir="A"></canvas>
+      <div class="meta"><div class="letter">A</div><div><h3>原版移植</h3><p>手机版的整屏染色、上下危险条和框字，最接近你原来的样子。</p></div></div>
+    </div>
+    <div class="card" data-choice="b-title-card" onclick="toggleSelect(this)">
+      <canvas width="800" height="480" data-dir="B"></canvas>
+      <div class="meta"><div class="letter">B</div><div><h3>巨幕字</h3><p>不染色，汉字撑满半屏，像 EVA 的标题卡。笔画之外都透明。</p></div></div>
+    </div>
+    <div class="card" data-choice="c-hex-wall" onclick="toggleSelect(this)">
+      <canvas width="800" height="480" data-dir="C"></canvas>
+      <div class="meta"><div class="letter">C</div><div><h3>六角警报墙</h3><p>整屏蜂窝逐波点亮，每个汉字占一个大六角格，最有 NERV 的味道。</p></div></div>
+    </div>
+    <div class="card" data-choice="d-hazard-frame" onclick="toggleSelect(this)">
+      <canvas width="800" height="480" data-dir="D"></canvas>
+      <div class="meta"><div class="letter">D</div><div><h3>危险边框</h3><p>四边滚动危险条，中央是巨大的实时数值，一眼看清有多严重。</p></div></div>
+    </div>
+  </div>
+
+  <p class="note">这是样稿，不是 bench 也不是实车：闪烁按每秒 1.25 次，数字按车上的文字刷新率每秒 5 次。“全屏”指 800×480 整个画布，实车可见范围会小一些，要用校准网格量过才知道。汉字用你项目里的 MatissePro EB，英文和数字用现有的 Barlow Condensed。</p>
+</main>
+
+<script>
+(function () {
+  const W = 800, H = 480, TAU = Math.PI * 2;
+  const FJ = 'MatisseEB, "Hiragino Mincho ProN", serif';
+  const FB = 'BarlowC, "Helvetica Neue", sans-serif';
+
+  const ALERTS = {
+    knock: { name: '非常事態', jp: '非常事態', lines: ['非常', '事態'], en: 'EMERGENCY', c: '#ff1100', label: '退点火  KNOCK RETARD',
+      val: (t) => '-' + (5.2 + 0.6 * Math.sin(t * 1.7)).toFixed(1), unit: '°', status: 'KNOCK DETECTED // 異常検出', tint: 'flat' },
+    heat: { name: '冷却過熱', jp: '冷却過熱', lines: ['冷却', '過熱'], en: 'OVERHEAT', c: '#ff4400', label: '冷却水  COOLANT',
+      val: (t) => String(Math.round(108 + 2 * Math.sin(t * .7))), unit: '°C', status: 'COOLANT WARNING // 臨界超過', tint: 'up' },
+    boost: { name: '増圧限界', jp: '増圧限界', lines: ['増圧', '限界'], en: 'OVERBOOST', c: '#00e5ff', label: '増圧  BOOST',
+      val: (t) => (2.62 + 0.06 * Math.sin(t * 3)).toFixed(2), unit: 'BAR', status: 'BOOST LIMIT EXCEEDED // 出力限界突破', tint: 'radial' },
+    fuel: { name: '燃圧喪失', jp: '燃圧喪失', lines: ['燃圧', '喪失'], en: 'FUEL CRITICAL', c: '#ff0050', label: '高圧燃料  HPFP',
+      val: (t) => String(Math.round(18 + 3 * Math.sin(t * 1.3))), unit: 'BAR', status: 'SUPPLY FAILURE // 生命線断絶', tint: 'down' },
+    afr: { name: '空燃比異常', jp: '空燃比異常', lines: ['空燃比', '異常'], en: 'AFR ANOMALY', c: '#76ff03', label: '空燃比  AFR',
+      val: (t) => (18.6 + 0.3 * Math.sin(t * 2.1)).toFixed(1), unit: '', status: 'AFR DEVIATION // 混合気異常検出', tint: 'flat' },
+    multi: { name: '多重警報', jp: '多重警報発令', lines: ['多重警報', '発令'], en: 'MULTIPLE ALERTS', c: '#ff0033', label: '同時発生',
+      val: () => '×3', unit: '', status: '非常事態 / 冷却過熱 / 燃圧喪失', tint: 'flat' },
+  };
+  const SCENES = { night: '夜路', day: '白天', black: '纯黑' };
+  let alertKey = 'knock', scene = 'night';
+
+  /* ---------- text sprites: cached like the app's image layers ---------- */
+  function newCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+  const measure = newCanvas(4, 4).getContext('2d');
+  function sprite(text, o) {
+    const font = (o.weight ? o.weight + ' ' : '') + o.px + 'px ' + o.font, ls = o.ls || 0;
+    measure.font = font; measure.letterSpacing = ls + 'px';
+    let hs = o.hs || 1;
+    const raw = measure.measureText(text).width;
+    if (o.maxW && raw * hs > o.maxW) hs = o.maxW / raw;
+    const w = Math.ceil(raw * hs), h = Math.ceil(o.px * 1.22);
+    const glow = o.glow || [];
+    const p = Math.ceil(Math.max(6, ...glow.map((g) => g[1])) * 1.15);
+    const c = newCanvas(w + p * 2, h + p * 2), x = c.getContext('2d');
+    x.font = font; x.letterSpacing = ls + 'px'; x.textBaseline = 'middle'; x.fillStyle = o.fill || '#fff';
+    x.translate(p, p + h / 2); x.scale(hs, 1);
+    glow.forEach((g) => { x.shadowColor = g[0]; x.shadowBlur = g[1]; x.fillText(text, 0, 0); });
+    x.shadowBlur = 0; x.fillText(text, 0, 0);
+    return { c, w, h, p };
+  }
+  function put(ctx, s, x, y, a, anchor) {
+    ctx.globalAlpha = a === undefined ? 1 : a;
+    const dx = anchor === 'l' ? x - s.p : anchor === 'r' ? x - s.w - s.p : x - s.w / 2 - s.p;
+    ctx.drawImage(s.c, dx, y - s.h / 2 - s.p);
+    ctx.globalAlpha = 1;
+  }
+  const hot = (a, px, hs) => [
+    sprite(a._t, { font: FJ, px, hs, fill: a.c, glow: [[a.c, Math.min(20, px * .14)]] }),
+    sprite(a._t, { font: FJ, px, hs, fill: '#ffffff', glow: [[a.c, Math.min(40, px * .3)], [a.c, 14]] }),
+  ];
+  function title(a, text, px, hs) { return hot(Object.assign({}, a, { _t: text }), px, hs); }
+
+  /* live numbers: rebuilt only when the string changes, as the app re-pushes a text layer */
+  function liveNumber(store, key, text, opts) {
+    if (!store[key] || store[key].text !== text) store[key] = { text, s: sprite(text, opts) };
+    return store[key].s;
+  }
+  function valueRow(ctx, st, a, t, cx, cy, px, tenths) {
+    const text = a.val(tenths / 5 + 0);
+    const v = liveNumber(st.cache, 'v' + px, text, { font: FB, weight: 700, px, fill: '#fff', glow: [[a.c, Math.min(34, px * .3)], [a.c, 12]] });
+    const u = a.unit ? liveNumber(st.cache, 'u' + px, a.unit, { font: FB, weight: 600, px: Math.round(px * .36), fill: a.c, glow: [[a.c, 8]] }) : null;
+    const total = v.w + (u ? u.w + 10 : 0), left = cx - total / 2;
+    put(ctx, v, left, cy, 1, 'l');
+    if (u) put(ctx, u, left + v.w + 10, a.unit.charAt(0) === '°' ? cy - px * .22 : cy + px * .24, 1, 'l');
+  }
+  function live(ctx, x, y, align, tenths, size) {
+    const tt = tenths / 5;
+    const spd = Math.round(86 + 6 * Math.sin(tt * .9)), rpm = 50 * Math.round((5200 + 500 * Math.sin(tt * 1.4)) / 50);
+    ctx.font = '600 ' + (size || 25) + 'px ' + FB; ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle';
+    ctx.letterSpacing = '1px'; ctx.fillStyle = 'rgba(255,255,255,.82)';
+    ctx.fillText(spd + ' KM/H    D4    ' + rpm + ' RPM', x, y);
+    ctx.textAlign = 'left'; ctx.letterSpacing = '0px';
+  }
+
+  /* ---------- shared effects: all of these would be GLSL effect layers on the car ---------- */
+  function rgba(hex, a) {
+    const n = parseInt(hex.slice(1), 16);
+    return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+  function tint(ctx, a, f) {
+    const k = .06 + .2 * f;
+    let g;
+    if (a.tint === 'up') { g = ctx.createLinearGradient(0, H, 0, 0); g.addColorStop(0, rgba(a.c, k * 1.6)); g.addColorStop(.5, rgba(a.c, k * .5)); g.addColorStop(1, rgba(a.c, 0)); }
+    else if (a.tint === 'down') { g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, rgba(a.c, k * 1.5)); g.addColorStop(.55, rgba(a.c, k * .45)); g.addColorStop(1, rgba(a.c, 0)); }
+    else if (a.tint === 'radial') { g = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, 520); g.addColorStop(0, rgba(a.c, k * 1.2)); g.addColorStop(.6, rgba(a.c, k * .4)); g.addColorStop(1, rgba(a.c, 0)); }
+    else g = rgba(a.c, k);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  function hazard(ctx, bx, by, bw, bh, off, color, alpha) {
+    const sw = 20, step = sw * 2, o = ((off % step) + step) % step;
+    ctx.save(); ctx.beginPath(); ctx.rect(bx, by, bw, bh); ctx.clip();
+    ctx.fillStyle = color; ctx.globalAlpha = alpha;
+    for (let s = -bh - step + o; s < bw + step; s += step) {
+      ctx.beginPath();
+      ctx.moveTo(bx + s, by + bh); ctx.lineTo(bx + s + bh, by);
+      ctx.lineTo(bx + s + bh + sw, by); ctx.lineTo(bx + s + sw, by + bh);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+  function hexPath(ctx, cx, cy, r) {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const an = Math.PI / 6 + i * Math.PI / 3, x = cx + r * Math.cos(an), y = cy + r * Math.sin(an);
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.closePath();
+  }
+
+  /* ---------- the four directions ---------- */
+  const BUILD = {
+    A(a) {
+      const n = a.jp.length, px = Math.min(136, 556 / n);
+      return {
+        title: title(a, a.jp, px),
+        en: sprite(a.en, { font: FB, weight: 700, px: 40, ls: 13, fill: a.c, glow: [[a.c, 10]], maxW: 640 }),
+        status: sprite(a.status, { font: FJ, px: 20, ls: 2, fill: a.c, maxW: 640 }),
+      };
+    },
+    B(a) {
+      const boxW = 416, boxH = 424;
+      const lines = a.lines.map((t) => ({ t, px: boxW / t.length }));
+      const sum = lines.reduce((s, l) => s + l.px, 0), k = Math.min(1, boxH / sum);
+      let y = (H - sum * k) / 2;
+      lines.forEach((l) => { const px = l.px * k; l.y = y + px / 2; y += px; l.s = title(a, l.t, Math.floor(px * .98)); });
+      return {
+        lines,
+        tag: sprite('MAGI SYSTEM WARNING', { font: FB, weight: 600, px: 20, ls: 5, fill: a.c, maxW: 320 }),
+        en: sprite(a.en, { font: FB, weight: 700, px: 42, ls: 5, fill: '#fff', glow: [[a.c, 12]], maxW: 320 }),
+        label: sprite(a.label, { font: FJ, px: 22, fill: a.c, maxW: 320 }),
+        status: sprite(a.status, { font: FJ, px: 17, fill: a.c, maxW: 320 }),
+      };
+    },
+    C(a) {
+      const chars = Array.from(a.jp), n = chars.length;
+      const R = Math.min(106, 770 / (n * Math.sqrt(3))), step = R * Math.sqrt(3), y = 158;
+      const tiles = chars.map((ch, i) => ({ x: W / 2 + (i - (n - 1) / 2) * step, y, ch, s: title(a, ch, Math.floor(R * 1.12)) }));
+      const small = [], r = 35, sx = r * Math.sqrt(3), sy = r * 1.5;
+      for (let row = -1; row < H / sy + 1; row++) {
+        for (let col = -1; col < W / sx + 1; col++) {
+          const x = col * sx + (row % 2 ? sx / 2 : 0), yy = row * sy;
+          const inTiles = yy > y - R * 1.18 && yy < y + R * 1.18 && Math.abs(x - W / 2) < n * step / 2 + 14;
+          const inText = yy > 262 && yy < 462 && Math.abs(x - W / 2) < 232;
+          if (!inTiles && !inText) small.push({ x, y: yy, d: Math.hypot(x - W / 2, yy - y) });
+        }
+      }
+      return { tiles, R, small, r, en: sprite(a.en, { font: FB, weight: 700, px: 32, ls: 9, fill: a.c, glow: [[a.c, 8]], maxW: 440 }) };
+    },
+    D(a) {
+      const n = a.jp.length;
+      return {
+        title: title(a, a.jp, Math.min(84, 560 / n)),
+        en: sprite(a.en, { font: FB, weight: 700, px: 30, ls: 9, fill: a.c, glow: [[a.c, 8]], maxW: 560 }),
+        status: sprite(a.status, { font: FJ, px: 18, ls: 1, fill: a.c, maxW: 600 }),
+      };
+    },
+  };
+
+  const DRAW = {
+    A(ctx, st, a, t, f, tenths) {
+      tint(ctx, a, f);
+      const col = f > .5 ? a.c : '#ccbb00';
+      hazard(ctx, 0, 0, W, 30, t * 34, col, .8);
+      hazard(ctx, 0, H - 30, W, 30, t * 34, col, .8);
+      ctx.strokeStyle = a.c; ctx.lineWidth = 5; ctx.globalAlpha = .55 + .45 * f;
+      ctx.strokeRect(92, 46, 616, 160); ctx.globalAlpha = 1;
+      put(ctx, st.S.title[0], W / 2, 126, 1 - f * .9);
+      put(ctx, st.S.title[1], W / 2, 126, f);
+      put(ctx, st.S.en, W / 2, 238, .95);
+      valueRow(ctx, st, a, t, W / 2, 316, 92, tenths);
+      put(ctx, st.S.status, W / 2, 386, .9);
+      live(ctx, W / 2, 422, 'center', tenths);
+    },
+    B(ctx, st, a, t, f, tenths) {
+      st.S.lines.forEach((l) => {
+        put(ctx, l.s[0], 24, l.y, 1 - f * .9, 'l');
+        put(ctx, l.s[1], 24, l.y, f, 'l');
+      });
+      const cx = 612;
+      put(ctx, st.S.tag, cx, 44, .85);
+      put(ctx, st.S.en, cx, 92, 1);
+      ctx.fillStyle = a.c; ctx.fillRect(460, 124, 304, 3);
+      put(ctx, st.S.label, cx, 152, .95);
+      valueRow(ctx, st, a, t, cx, 244, 132, tenths);
+      ctx.fillStyle = a.c; ctx.fillRect(460, 330, 304, 2);
+      put(ctx, st.S.status, cx, 354, .95);
+      live(ctx, cx, 416, 'center', tenths, 23);
+    },
+    C(ctx, st, a, t, f, tenths) {
+      const S = st.S;
+      ctx.lineWidth = 2.5;
+      S.small.forEach((h) => {
+        const wave = Math.pow(Math.max(0, Math.sin(h.d * .016 - t * 2.6)), 3);
+        hexPath(ctx, h.x, h.y, S.r * .9);
+        ctx.fillStyle = rgba(a.c, .02 + .3 * wave); ctx.fill();
+        ctx.strokeStyle = rgba(a.c, .18 + .8 * wave); ctx.stroke();
+      });
+      S.tiles.forEach((p) => {
+        hexPath(ctx, p.x, p.y, S.R * .95);
+        ctx.fillStyle = rgba(a.c, .05 + .13 * f); ctx.fill();
+        ctx.lineWidth = 5; ctx.strokeStyle = rgba(a.c, .6 + .4 * f); ctx.stroke();
+        put(ctx, p.s[0], p.x, p.y + 2, 1 - f * .9);
+        put(ctx, p.s[1], p.x, p.y + 2, f);
+      });
+      put(ctx, S.en, W / 2, 292, .95);
+      valueRow(ctx, st, a, t, W / 2, 364, 92, tenths);
+      live(ctx, W / 2, 434, 'center', tenths, 23);
+    },
+    D(ctx, st, a, t, f, tenths) {
+      const b = 40, col = f > .5 ? a.c : '#ccbb00', al = .62 + .3 * f;
+      hazard(ctx, 0, 0, W, b, t * 34, col, al);
+      hazard(ctx, 0, H - b, W, b, t * 34, col, al);
+      hazard(ctx, 0, b, b, H - 2 * b, t * 34, col, al);
+      hazard(ctx, W - b, b, b, H - 2 * b, t * 34, col, al);
+      put(ctx, st.S.title[0], W / 2, 96, 1 - f * .9);
+      put(ctx, st.S.title[1], W / 2, 96, f);
+      valueRow(ctx, st, a, t, W / 2, 234, 176, tenths);
+      put(ctx, st.S.en, W / 2, 346, .95);
+      put(ctx, st.S.status, W / 2, 380, .9);
+      live(ctx, W / 2, 414, 'center', tenths, 22);
+    },
+  };
+
+  /* ---------- what the HUD is projected over ---------- */
+  const scenery = {};
+  function buildScenery() {
+    ['night', 'day'].forEach((k) => {
+      const c = newCanvas(W, H), x = c.getContext('2d'), night = k === 'night', hz = 176;
+      const sky = x.createLinearGradient(0, 0, 0, hz);
+      if (night) { sky.addColorStop(0, '#05070d'); sky.addColorStop(1, '#1c2436'); }
+      else { sky.addColorStop(0, '#8fb0cd'); sky.addColorStop(1, '#dbe5ea'); }
+      x.fillStyle = sky; x.fillRect(0, 0, W, hz);
+      const gnd = x.createLinearGradient(0, hz, 0, H);
+      if (night) { gnd.addColorStop(0, '#0a0d10'); gnd.addColorStop(1, '#050607'); }
+      else { gnd.addColorStop(0, '#7b8a70'); gnd.addColorStop(1, '#4f5a48'); }
+      x.fillStyle = gnd; x.fillRect(0, hz, W, H - hz);
+      x.fillStyle = night ? '#16181c' : '#55585c';
+      x.beginPath(); x.moveTo(380, hz); x.lineTo(420, hz); x.lineTo(800, H); x.lineTo(0, H); x.closePath(); x.fill();
+      x.strokeStyle = night ? 'rgba(220,225,230,.5)' : 'rgba(245,245,245,.85)'; x.lineWidth = 3;
+      x.beginPath(); x.moveTo(384, hz); x.lineTo(30, H); x.moveTo(416, hz); x.lineTo(770, H); x.stroke();
+      let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      if (night) for (let i = 0; i < 46; i++) { x.fillStyle = 'rgba(255,' + (190 + rnd() * 50 | 0) + ',140,' + (.25 + rnd() * .6) + ')'; x.fillRect(rnd() * W, hz - 6 - rnd() * 20, 2, 2); }
+      else { x.fillStyle = '#6b7780'; for (let i = 0; i < 18; i++) { const w = 24 + rnd() * 40, h = 8 + rnd() * 34; x.fillRect(rnd() * W, hz - h, w, h); } }
+      /* the car ahead */
+      x.fillStyle = night ? '#0b0c0e' : '#23262a'; x.fillRect(362, 226, 76, 42);
+      x.fillStyle = night ? '#101216' : '#3a4149'; x.fillRect(372, 208, 56, 20);
+      x.shadowColor = '#ff2a10'; x.shadowBlur = night ? 18 : 5; x.fillStyle = '#ff2a10';
+      x.fillRect(364, 234, 16, 7); x.fillRect(420, 234, 16, 7); x.shadowBlur = 0;
+      scenery[k] = c;
+    });
+  }
+  function drawScene(ctx, t) {
+    if (scene === 'black') { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); return; }
+    ctx.drawImage(scenery[scene], 0, 0);
+    ctx.fillStyle = scene === 'night' ? 'rgba(225,230,235,.55)' : 'rgba(250,250,250,.9)';
+    for (let i = 0; i < 6; i++) {
+      const z = ((i / 6) + t * .28) % 1, y = 176 + (H - 176) * z * z, h = 2 + 46 * z * z, w = 1 + 7 * z;
+      if (y > 268) ctx.fillRect(400 - w / 2, y, w, h);
+    }
+  }
+
+  /* ---------- wiring ---------- */
+  const stages = Array.from(document.querySelectorAll('canvas[data-dir]')).map((c) => ({ ctx: c.getContext('2d'), dir: c.dataset.dir, S: null, cache: {} }));
+  function rebuild() { const a = ALERTS[alertKey]; stages.forEach((st) => { st.cache = {}; st.S = BUILD[st.dir](a); }); }
+  function pills(host, items, get, set) {
+    Object.keys(items).forEach((k) => {
+      const b = document.createElement('button');
+      b.className = 'pill'; b.type = 'button'; b.textContent = typeof items[k] === 'string' ? items[k] : items[k].name;
+      b.addEventListener('click', () => {
+        set(k);
+        host.querySelectorAll('button').forEach((x) => x.classList.remove('on'));
+        b.classList.add('on');
+      });
+      if (get() === k) b.classList.add('on');
+      host.appendChild(b);
+    });
+  }
+  pills(document.getElementById('alerts'), ALERTS, () => alertKey, (k) => { alertKey = k; rebuild(); });
+  pills(document.getElementById('scenes'), SCENES, () => scene, (k) => { scene = k; });
+
+  let last = 0;
+  function frame(ms) {
+    requestAnimationFrame(frame);
+    if (ms - last < 33) return;
+    last = ms;
+    const t = ms / 1000, a = ALERTS[alertKey];
+    const s = Math.sin(t * TAU * 1.25);
+    const e = Math.max(0, Math.min(1, (s + .25) / .5)), f = e * e * (3 - 2 * e);
+    const tenths = Math.floor(t * 5);
+    stages.forEach((st) => {
+      const ctx = st.ctx;
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+      drawScene(ctx, t);
+      ctx.globalCompositeOperation = 'lighter';
+      DRAW[st.dir](ctx, st, a, t, f, tenths);
+    });
+  }
+
+  Promise.all([
+    document.fonts.load('64px MatisseEB', '非常事態冷却過熱増圧限界燃圧喪失空燃比異常多重警報発令臨界超過検出出力突破生命線断絶混合気退点火水高料同時発生'),
+    document.fonts.load('700 64px BarlowC', 'EMERGENCY 0123'),
+    document.fonts.load('600 24px BarlowC', 'KM/H 0123'),
+  ]).catch(() => {}).then(() => {
+    buildScenery();
+    rebuild();
+    requestAnimationFrame(frame);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+EVA HUD - third-party notices
+=============================
+
+The app's own code is MIT, Copyright (c) 2026 DukeAPenguin (LICENSE in the repository). Besides its own code, it uses:
+
+1. The HUD Widgets engine of https://github.com/bimmer-lab/apps (shared/, bench/, MIT, Copyright (c) 2026 bimmer-lab).
+
+2. cauliflowermossgrape's MGU App Kit (kit/, MIT). https://github.com/cauliflowermossgrape/idrive7-apps
+   The engine unit identifiers and scaling in app.json come from that repository's car_vitals and Live Data apps.
+   Shift scoring and the cold-engine guard (shift_score.js) and the rev bar and shift lights (shaders.js) are ported
+   from its Redline app, by way of bimmer-lab/apps. Licence below.
+
+3. cluster_render_client.js: Mozilla Public License 2.0, Copyright (C) 2026 Robert Nisipeanu.
+   Unmodified copy from https://github.com/robertnisipeanu/idrive-apps (native/cluster-render).
+   The MPL text: https://mozilla.org/MPL/2.0/
+   The cluster-render service itself (GPL-3.0) is not part of this app. It is installed separately.
+
+Fonts are not in this repository. hud/fonts/ is generated on the builder's machine by tools/eva_layout.py, from:
+- Barlow (SIL Open Font License 1.1, https://github.com/jpt/barlow).
+- MatissePro EB, a commercial typeface, from the builder's own licensed copy.
+A build of this app holds glyphs of both, so do not publish hud/fonts/ or a built .mgu.
+
+hud/logos/ and tools/assets/nerv_mask.png hold the NERV mark from Neon Genesis Evangelion (khara), from an image the
+owner supplied. The mark is not covered by this repository's MIT licence.
+
+----------------------------------------------------------------------------------------------
+MGU App Kit licence (cauliflowermossgrape/idrive7-apps LICENSE)
+
+MIT License
+
+Copyright (c) 2026 cauliflowermossgrape
+Copyright (c) 2026 小白151 (GitHub: JackieZ123430), Chinese translation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

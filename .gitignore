@@ -1,0 +1,21 @@
+# build output and the BMW oap-sdk (not redistributable)
+dist/
+oap-sdk/
+*.log
+bench/.data/
+__pycache__/
+.claude/
+.DS_Store
+
+# No fonts in this repository: see "字体" in README.md
+*.ttf
+*.otf
+*.ttc
+*.woff
+*.woff2
+apps/*/hud/fonts/
+kit/runtime/fonts/
+tools/fonts-src/
+
+# A build holds font glyphs
+*.mgu

@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVA HUD 巨幕字样稿</title>
+<style>
+@font-face { font-family: "MatisseEB"; src: url("/files/MatissePro-EB.otf") format("opentype"); font-display: block; }
+@font-face { font-family: "BarlowC"; src: url("/files/BarlowCondensed-Bold.ttf") format("truetype"); font-weight: 700; font-display: block; }
+@font-face { font-family: "BarlowC"; src: url("/files/BarlowCondensed-SemiBold.ttf") format("truetype"); font-weight: 600; font-display: block; }
+:root { --bg: #0c0a08; --panel: #17130f; --line: #30281f; --ink: #f1eadf; --dim: #a2968a; --amber: #ff8800; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif; padding: 20px 16px 40px; }
+main { max-width: 1680px; margin: 0 auto; }
+h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+.sub { margin: 0 0 14px; color: var(--dim); font-size: 14px; line-height: 1.6; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 16px; position: sticky; top: 0; z-index: 5;
+  background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.seg > span { font-size: 12px; color: var(--dim); margin-right: 2px; }
+button.pill { appearance: none; background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 7px 11px; font: inherit; font-size: 14px; cursor: pointer; }
+button.pill:hover { border-color: #5c4a34; }
+button.pill.on { background: var(--amber); border-color: var(--amber); color: #120a00; font-weight: 700; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 14px; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+figure canvas { display: block; width: 100%; height: auto; aspect-ratio: 800 / 480; background: #000; }
+figcaption { padding: 9px 12px 11px; color: var(--dim); font-size: 13px; line-height: 1.5; }
+figcaption b { color: var(--ink); font-weight: 600; }
+.note { margin: 16px 0 0; color: var(--dim); font-size: 13px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<main>
+  <h1>巨幕字：6 种警报，贴边和内收</h1>
+  <p class="sub">内收的范围是我的猜测，只用来看字缩小后还够不够大。真实范围要在你车上用校准网格拍照才知道。</p>
+  <div class="bar">
+    <div class="seg" id="fit"><span>版式</span></div>
+    <div class="seg" id="guide"><span>参考线</span></div>
+    <div class="seg" id="scenes"><span>背景</span></div>
+  </div>
+  <div class="cards" id="cards"></div>
+  <p class="note">虚线是 Redline 布局的上边和左右边（y=36、x=40、x=760）。作者实车测试时，这条线上的内容已经落在可见范围外，所以真实可见范围一定在虚线以内。虚线和实线框只是样稿标注，不会显示在 HUD 上。</p>
+</main>
+<script>
+(function () {
+  const W = 800, H = 480, TAU = Math.PI * 2;
+  const FJ = 'MatisseEB, "Hiragino Mincho ProN", serif';
+  const FB = 'BarlowC, "Helvetica Neue", sans-serif';
+  const FITS = {
+    inset: { name: '内收 640×380（猜测）', r: { x: 80, y: 62, w: 640, h: 380 } },
+    edge: { name: '贴边 800×480', r: { x: 24, y: 28, w: 752, h: 424 } },
+  };
+  const ALERTS = {
+    knock: { jp: '非常事態', lines: ['非常', '事態'], en: 'EMERGENCY', c: '#ff1100', label: '退点火  KNOCK RETARD',
+      val: (t) => '-' + (5.2 + 0.6 * Math.sin(t * 1.7)).toFixed(1), unit: '°', status: 'KNOCK DETECTED // 異常検出', cap: '爆震退角' },
+    heat: { jp: '冷却過熱', lines: ['冷却', '過熱'], en: 'OVERHEAT', c: '#ff4400', label: '冷却水  COOLANT',
+      val: (t) => String(Math.round(108 + 2 * Math.sin(t * .7))), unit: '°C', status: 'COOLANT WARNING // 臨界超過', cap: '水温过高' },
+    boost: { jp: '増圧限界', lines: ['増圧', '限界'], en: 'OVERBOOST', c: '#00e5ff', label: '増圧  BOOST',
+      val: (t) => (2.62 + 0.06 * Math.sin(t * 3)).toFixed(2), unit: 'BAR', status: 'BOOST LIMIT EXCEEDED // 出力限界突破', cap: '增压超限' },
+    fuel: { jp: '燃圧喪失', lines: ['燃圧', '喪失'], en: 'FUEL CRITICAL', c: '#ff0050', label: '高圧燃料  HPFP',
+      val: (t) => String(Math.round(18 + 3 * Math.sin(t * 1.3))), unit: 'BAR', status: 'SUPPLY FAILURE // 生命線断絶', cap: '油压过低' },
+    afr: { jp: '空燃比異常', lines: ['空燃比', '異常'], en: 'AFR ANOMALY', c: '#76ff03', label: '空燃比  AFR',
+      val: (t) => (18.6 + 0.3 * Math.sin(t * 2.1)).toFixed(1), unit: '', status: 'AFR DEVIATION // 混合気異常検出', cap: '空燃比异常' },
+    multi: { jp: '多重警報発令', lines: ['多重警報', '発令'], en: 'MULTIPLE ALERTS', c: '#ff0033', label: '同時発生',
+      val: () => '×3', unit: '', status: '非常事態 / 冷却過熱 / 燃圧喪失', cap: '3 个以上同时触发' },
+  };
+  const SCENES = { night: '夜路', day: '白天', black: '纯黑' };
+  let fit = 'inset', scene = 'night', showGuide = 'on';
+
+  function newCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+  const measure = newCanvas(4, 4).getContext('2d');
+  function sprite(text, o) {
+    const font = (o.weight ? o.weight + ' ' : '') + o.px + 'px ' + o.font, ls = o.ls || 0;
+    measure.font = font; measure.letterSpacing = ls + 'px';
+    let hs = 1;
+    const raw = measure.measureText(text).width;
+    if (o.maxW && raw > o.maxW) hs = o.maxW / raw;
+    const w = Math.ceil(raw * hs), h = Math.ceil(o.px * 1.22);
+    const glow = o.glow || [];
+    const p = Math.ceil(Math.max(6, ...glow.map((g) => g[1])) * 1.15);
+    const c = newCanvas(w + p * 2, h + p * 2), x = c.getContext('2d');
+    x.font = font; x.letterSpacing = ls + 'px'; x.textBaseline = 'middle'; x.fillStyle = o.fill || '#fff';
+    x.translate(p, p + h / 2); x.scale(hs, 1);
+    glow.forEach((g) => { x.shadowColor = g[0]; x.shadowBlur = g[1]; x.fillText(text, 0, 0); });
+    x.shadowBlur = 0; x.fillText(text, 0, 0);
+    return { c, w, h, p };
+  }
+  function put(ctx, s, x, y, a, anchor) {
+    ctx.globalAlpha = a === undefined ? 1 : a;
+    const dx = anchor === 'l' ? x - s.p : x - s.w / 2 - s.p;
+    ctx.drawImage(s.c, dx, y - s.h / 2 - s.p);
+    ctx.globalAlpha = 1;
+  }
+  function build(a, r) {
+    const boxW = Math.round(r.w * .55), lines = a.lines.map((t) => ({ t, px: boxW / t.length }));
+    const sum = lines.reduce((s, l) => s + l.px, 0), k = Math.min(1, r.h / sum);
+    let y = r.y + (r.h - sum * k) / 2;
+    lines.forEach((l) => {
+      const px = Math.floor(l.px * k * .98);
+      l.y = y + l.px * k / 2; y += l.px * k;
+      l.s = [
+        sprite(l.t, { font: FJ, px, fill: a.c, glow: [[a.c, Math.min(20, px * .14)]] }),
+        sprite(l.t, { font: FJ, px, fill: '#fff', glow: [[a.c, Math.min(40, px * .3)], [a.c, 14]] }),
+      ];
+    });
+    const colX = r.x + boxW + r.w * .03, colW = r.x + r.w - colX, cx = colX + colW / 2, ks = r.h / 424;
+    return {
+      lines, r, colX, colW, cx, ks,
+      tag: sprite('MAGI SYSTEM WARNING', { font: FB, weight: 600, px: Math.round(20 * ks), ls: 4, fill: a.c, maxW: colW }),
+      en: sprite(a.en, { font: FB, weight: 700, px: Math.round(42 * ks), ls: 4, fill: '#fff', glow: [[a.c, 12]], maxW: colW }),
+      label: sprite(a.label, { font: FJ, px: Math.round(22 * ks), fill: a.c, maxW: colW }),
+      status: sprite(a.status, { font: FJ, px: Math.round(18 * ks), fill: a.c, maxW: colW }),
+      vPx: Math.round(Math.min(132 * ks, colW * .42)), livePx: Math.round(24 * ks),
+    };
+  }
+  function draw(ctx, st, a, f, tenths) {
+    const S = st.S, r = S.r, tt = tenths / 5;
+    S.lines.forEach((l) => {
+      put(ctx, l.s[0], r.x, l.y, 1 - f * .9, 'l');
+      put(ctx, l.s[1], r.x, l.y, f, 'l');
+    });
+    const at = (k) => r.y + r.h * k;
+    put(ctx, S.tag, S.cx, at(.05), .85);
+    put(ctx, S.en, S.cx, at(.16), 1);
+    ctx.fillStyle = a.c; ctx.fillRect(S.colX, at(.245), S.colW, 3);
+    put(ctx, S.label, S.cx, at(.305), .95);
+    const text = a.val(tt), px = S.vPx;
+    if (!st.v || st.vt !== text) { st.vt = text; st.v = sprite(text, { font: FB, weight: 700, px, fill: '#fff', glow: [[a.c, Math.min(34, px * .3)], [a.c, 12]], maxW: S.colW * .8 }); }
+    if (a.unit && !st.u) st.u = sprite(a.unit, { font: FB, weight: 600, px: Math.round(px * .34), fill: a.c, glow: [[a.c, 8]] });
+    const u = a.unit ? st.u : null, total = st.v.w + (u ? u.w + 8 : 0), left = S.cx - total / 2, vy = at(.53);
+    put(ctx, st.v, left, vy, 1, 'l');
+    if (u) put(ctx, u, left + st.v.w + 8, a.unit.charAt(0) === '°' ? vy - px * .22 : vy + px * .24, 1, 'l');
+    ctx.fillStyle = a.c; ctx.fillRect(S.colX, at(.735), S.colW, 2);
+    put(ctx, S.status, S.cx, at(.795), .95);
+    const spd = Math.round(86 + 6 * Math.sin(tt * .9)), rpm = 50 * Math.round((5200 + 500 * Math.sin(tt * 1.4)) / 50);
+    ctx.font = '600 ' + S.livePx + 'px ' + FB; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.letterSpacing = '1px';
+    ctx.fillStyle = 'rgba(255,255,255,.82)';
+    ctx.fillText(spd + ' KM/H   D4   ' + rpm + ' RPM', S.cx, at(.93), S.colW);
+    ctx.textAlign = 'left'; ctx.letterSpacing = '0px';
+  }
+  function guides(ctx) {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.save();
+    ctx.lineWidth = 2; ctx.setLineDash([8, 7]); ctx.strokeStyle = 'rgba(255,255,255,.75)';
+    ctx.beginPath(); ctx.moveTo(40, H); ctx.lineTo(40, 36); ctx.lineTo(760, 36); ctx.lineTo(760, H); ctx.stroke();
+    ctx.restore();
+    if (fit === 'inset') {
+      const r = FITS.inset.r;
+      ctx.strokeStyle = 'rgba(255,200,90,.9)'; ctx.lineWidth = 2; ctx.strokeRect(r.x, r.y, r.w, r.h);
+    }
+  }
+  const scenery = {};
+  function buildScenery() {
+    ['night', 'day'].forEach((k) => {
+      const c = newCanvas(W, H), x = c.getContext('2d'), night = k === 'night', hz = 176;
+      const sky = x.createLinearGradient(0, 0, 0, hz);
+      if (night) { sky.addColorStop(0, '#05070d'); sky.addColorStop(1, '#1c2436'); }
+      else { sky.addColorStop(0, '#8fb0cd'); sky.addColorStop(1, '#dbe5ea'); }
+      x.fillStyle = sky; x.fillRect(0, 0, W, hz);
+      const gnd = x.createLinearGradient(0, hz, 0, H);
+      if (night) { gnd.addColorStop(0, '#0a0d10'); gnd.addColorStop(1, '#050607'); }
+      else { gnd.addColorStop(0, '#7b8a70'); gnd.addColorStop(1, '#4f5a48'); }
+      x.fillStyle = gnd; x.fillRect(0, hz, W, H - hz);
+      x.fillStyle = night ? '#16181c' : '#55585c';
+      x.beginPath(); x.moveTo(380, hz); x.lineTo(420, hz); x.lineTo(800, H); x.lineTo(0, H); x.closePath(); x.fill();
+      x.strokeStyle = night ? 'rgba(220,225,230,.5)' : 'rgba(245,245,245,.85)'; x.lineWidth = 3;
+      x.beginPath(); x.moveTo(384, hz); x.lineTo(30, H); x.moveTo(416, hz); x.lineTo(770, H); x.stroke();
+      let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      if (night) for (let i = 0; i < 46; i++) { x.fillStyle = 'rgba(255,' + (190 + rnd() * 50 | 0) + ',140,' + (.25 + rnd() * .6) + ')'; x.fillRect(rnd() * W, hz - 6 - rnd() * 20, 2, 2); }
+      else { x.fillStyle = '#6b7780'; for (let i = 0; i < 18; i++) { const w = 24 + rnd() * 40, h = 8 + rnd() * 34; x.fillRect(rnd() * W, hz - h, w, h); } }
+      x.fillStyle = night ? '#0b0c0e' : '#23262a'; x.fillRect(362, 226, 76, 42);
+      x.fillStyle = night ? '#101216' : '#3a4149'; x.fillRect(372, 208, 56, 20);
+      x.shadowColor = '#ff2a10'; x.shadowBlur = night ? 18 : 5; x.fillStyle = '#ff2a10';
+      x.fillRect(364, 234, 16, 7); x.fillRect(420, 234, 16, 7); x.shadowBlur = 0;
+      scenery[k] = c;
+    });
+  }
+  function drawScene(ctx) {
+    if (scene === 'black') { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); return; }
+    ctx.drawImage(scenery[scene], 0, 0);
+  }
+
+  const host = document.getElementById('cards');
+  const stages = Object.keys(ALERTS).map((key) => {
+    const fig = document.createElement('figure');
+    const c = newCanvas(W, H);
+    const cap = document.createElement('figcaption');
+    cap.innerHTML = '<b>' + ALERTS[key].jp + '</b>  ' + ALERTS[key].cap;
+    fig.appendChild(c); fig.appendChild(cap); host.appendChild(fig);
+    return { key, ctx: c.getContext('2d'), S: null };
+  });
+  function rebuild() {
+    stages.forEach((st) => { st.v = st.u = st.vt = null; st.S = build(ALERTS[st.key], FITS[fit].r); });
+  }
+  function pills(el, items, get, set) {
+    Object.keys(items).forEach((k) => {
+      const b = document.createElement('button');
+      b.className = 'pill'; b.type = 'button';
+      b.textContent = typeof items[k] === 'string' ? items[k] : items[k].name;
+      if (get() === k) b.classList.add('on');
+      b.addEventListener('click', () => {
+        set(k);
+        el.querySelectorAll('button').forEach((x) => x.classList.remove('on'));
+        b.classList.add('on');
+      });
+      el.appendChild(b);
+    });
+  }
+  pills(document.getElementById('fit'), FITS, () => fit, (k) => { fit = k; rebuild(); });
+  pills(document.getElementById('guide'), { on: '显示', off: '隐藏' }, () => showGuide, (k) => { showGuide = k; });
+  pills(document.getElementById('scenes'), SCENES, () => scene, (k) => { scene = k; });
+
+  let last = 0;
+  function frame(ms) {
+    requestAnimationFrame(frame);
+    if (ms - last < 33) return;
+    last = ms;
+    const t = ms / 1000, s = Math.sin(t * TAU * 1.25), e = Math.max(0, Math.min(1, (s + .25) / .5)), f = e * e * (3 - 2 * e);
+    const tenths = Math.floor(t * 5);
+    stages.forEach((st) => {
+      const ctx = st.ctx, a = ALERTS[st.key];
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+      drawScene(ctx);
+      ctx.globalCompositeOperation = 'lighter';
+      draw(ctx, st, a, f, tenths);
+      if (showGuide === 'on') guides(ctx);
+    });
+  }
+  Promise.all([
+    document.fonts.load('64px MatisseEB', '非常事態冷却過熱増圧限界燃圧喪失空燃比異常多重警報発令臨界超過検出出力突破生命線断絶混合気退点火水高料同時発生'),
+    document.fonts.load('700 64px BarlowC', 'EMERGENCY 0123'),
+    document.fonts.load('600 24px BarlowC', 'KM/H 0123'),
+  ]).catch(() => {}).then(() => { buildScenery(); rebuild(); requestAnimationFrame(frame); });
+})();
+</script>
+</body>
+</html>

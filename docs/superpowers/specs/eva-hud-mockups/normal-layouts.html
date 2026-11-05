@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVA HUD 平时布局</title>
+<style>
+@font-face { font-family: "MatisseEB"; src: url("/files/MatissePro-EB.otf") format("opentype"); font-display: block; }
+@font-face { font-family: "BarlowC"; src: url("/files/BarlowCondensed-Bold.ttf") format("truetype"); font-weight: 700; font-display: block; }
+@font-face { font-family: "BarlowC"; src: url("/files/BarlowCondensed-SemiBold.ttf") format("truetype"); font-weight: 600; font-display: block; }
+:root { --bg: #0c0a08; --panel: #17130f; --line: #30281f; --ink: #f1eadf; --dim: #a2968a; --amber: #ff8800; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif; padding: 20px 16px 40px; }
+main { max-width: 1680px; margin: 0 auto; }
+h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+.sub { margin: 0 0 14px; color: var(--dim); font-size: 14px; line-height: 1.6; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 16px; position: sticky; top: 0; z-index: 5;
+  background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.seg > span { font-size: 12px; color: var(--dim); margin-right: 2px; }
+button.pill { appearance: none; background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 7px 11px; font: inherit; font-size: 14px; cursor: pointer; }
+button.pill:hover { border-color: #5c4a34; }
+button.pill.on { background: var(--amber); border-color: var(--amber); color: #120a00; font-weight: 700; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer; }
+.card:hover { border-color: #5c4a34; }
+.card.selected { border-color: var(--amber); box-shadow: 0 0 0 2px var(--amber); }
+.card canvas { display: block; width: 100%; height: auto; aspect-ratio: 800 / 480; background: #000; }
+.meta { display: flex; gap: 12px; padding: 12px 14px 14px; align-items: flex-start; }
+.letter { flex: none; width: 28px; height: 28px; border-radius: 6px; background: #2a2118; color: var(--amber);
+  display: grid; place-items: center; font-weight: 800; }
+.card.selected .letter { background: var(--amber); color: #120a00; }
+.meta h3 { margin: 0 0 3px; font-size: 16px; }
+.meta p { margin: 0; color: var(--dim); font-size: 14px; line-height: 1.55; }
+.note { margin: 18px 0 0; color: var(--dim); font-size: 13px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<main>
+  <h1>平时的 HUD，哪种布局最对？</h1>
+  <p class="sub">三版都放进内收范围（猜测的 640×380），数据是模拟的加速过程。可以切到停车、P 挡和倒挡看挡位区的变化。</p>
+  <div class="bar">
+    <div class="seg" id="modes"><span>状态</span></div>
+    <div class="seg" id="music"><span>音乐</span></div>
+    <div class="seg" id="guide"><span>参考线</span></div>
+    <div class="seg" id="scenes"><span>背景</span></div>
+  </div>
+  <div class="cards">
+    <div class="card" data-choice="a-center-frame" onclick="toggleSelect(this)">
+      <canvas width="800" height="480" data-dir="A"></canvas>
+      <div class="meta"><div class="letter">A</div><div><h3>中央框式</h3><p>手机版的结构：顶部转速条，框内居中巨型挡位，车速和数据分列两翼。</p></div></div>
+    </div>
+    <div class="card" data-choice="b-mirror-alert" onclick="toggleSelect(this)">
+      <canvas width="800" height="480" data-dir="B"></canvas>
+      <div class="meta"><div class="letter">B</div><div><h3>左右同构</h3><p>和巨幕字警报同一骨架：左边挡位，右边车速和数据。报警时汉字直接接管挡位的位置。</p></div></div>
+    </div>
+    <div class="card" data-choice="c-hex-cluster" onclick="toggleSelect(this)">
+      <canvas width="800" height="480" data-dir="C"></canvas>
+      <div class="meta"><div class="letter">C</div><div><h3>六角蜂巢</h3><p>挡位在中央大六角格，车速和数据各占一格，整体最像 NERV 的作战面板。</p></div></div>
+    </div>
+  </div>
+  <p class="note">这是样稿，不是 bench 也不是实车。音乐标题目前只是占位：还没确认车机能读到，读不到时这一行会隐藏。MAGI 三个标记我打算对应真实状态（车辆信号、诊断链路、渲染服务），不只是装饰。</p>
+</main>
+<script>
+(function () {
+  const W = 800, H = 480;
+  const FJ = 'MatisseEB, "Hiragino Mincho ProN", serif';
+  const FB = 'BarlowC, "Helvetica Neue", sans-serif';
+  const FS = '"Hiragino Sans", "PingFang SC", sans-serif';
+  const AMBER = '#ff8800', YEL = '#ffdd00', RED = '#ff1100', SHIFT = 6500, MAX = 7000;
+  const MODES = { drive: '行驶', stop: 'D 挡停车', park: 'P 挡', rev: '倒挡' };
+  const SCENES = { night: '夜路', day: '白天', black: '纯黑' };
+  let mode = 'drive', scene = 'night', music = 'on', showGuide = 'off';
+
+  function newCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+  const measure = newCanvas(4, 4).getContext('2d');
+  function sprite(text, o) {
+    const font = (o.weight ? o.weight + ' ' : '') + o.px + 'px ' + o.font, ls = o.ls || 0;
+    measure.font = font; measure.letterSpacing = ls + 'px';
+    let hs = 1;
+    const raw = measure.measureText(text).width;
+    if (o.maxW && raw > o.maxW) hs = o.maxW / raw;
+    const w = Math.ceil(raw * hs), h = Math.ceil(o.px * 1.22);
+    const glow = o.glow || [];
+    const p = Math.ceil(Math.max(5, ...glow.map((g) => g[1])) * 1.15);
+    const c = newCanvas(w + p * 2, h + p * 2), x = c.getContext('2d');
+    x.font = font; x.letterSpacing = ls + 'px'; x.textBaseline = 'middle'; x.fillStyle = o.fill || AMBER;
+    x.translate(p, p + h / 2); x.scale(hs, 1);
+    glow.forEach((g) => { x.shadowColor = g[0]; x.shadowBlur = g[1]; x.fillText(text, 0, 0); });
+    x.shadowBlur = 0; x.fillText(text, 0, 0);
+    return { c, w, h, p };
+  }
+  function put(ctx, s, x, y, a, anchor) {
+    ctx.globalAlpha = a === undefined ? 1 : a;
+    const dx = anchor === 'l' ? x - s.p : anchor === 'r' ? x - s.w - s.p : x - s.w / 2 - s.p;
+    ctx.drawImage(s.c, dx, y - s.h / 2 - s.p);
+    ctx.globalAlpha = 1;
+  }
+  /* a text layer: re-rasterized only when its string or colour changes, as the app re-pushes one */
+  function T(ctx, st, key, str, o, x, y, anchor, a) {
+    const sig = str + '|' + (o.fill || '');
+    if (!st.c[key] || st.c[key].sig !== sig) st.c[key] = { sig, s: sprite(str, o) };
+    put(ctx, st.c[key].s, x, y, a, anchor);
+    return st.c[key].s;
+  }
+  const label = (px) => ({ font: FB, weight: 600, px: px || 16, ls: 1, fill: AMBER });
+  const jp = (px) => ({ font: FJ, px: px || 16, fill: AMBER });
+  const num = (px, fill) => ({ font: FB, weight: 700, px, fill: fill || AMBER, glow: [[fill || AMBER, Math.min(16, px * .16)]] });
+
+  /* ---------- simulated car ---------- */
+  const K = [7.2, 12.5, 18, 24, 31];
+  function sim(t) {
+    if (mode === 'park') return { g: 0, gear: 'P', rpm: 780, spd: 0, oil: 96, water: 88, boost: 0, nm: 22, kw: 2, pedal: 0, tc: 0 };
+    if (mode === 'rev') return { g: -1, gear: 'R', rpm: 1050, spd: 4, oil: 96, water: 88, boost: 0, nm: 46, kw: 5, pedal: 8, tc: 0 };
+    if (mode === 'stop') return { g: 1, gear: 'D', rpm: 720, spd: 0, oil: 96, water: 88, boost: 0, nm: 18, kw: 1, pedal: 0, tc: 0 };
+    const T0 = 2.5, N = 5, cruise = 5, total = T0 * N + cruise, c = t % total;
+    if (c >= T0 * N) return { g: 5, gear: 'D', rpm: 2500, spd: Math.round(2.5 * K[4]), oil: 104, water: 92, boost: .1, nm: 120, kw: 31, pedal: 18, tc: t - (c - T0 * N) };
+    const i = Math.floor(c / T0), u = (c - i * T0) / T0, rpm = 3000 + 3850 * Math.pow(u, .85);
+    const nm = 430 + 40 * Math.sin(u * 3);
+    return { g: i + 1, gear: 'D', rpm, spd: Math.round(rpm / 1000 * K[i]), oil: 106, water: 94, boost: 1.05 + .12 * Math.sin(u * 6), nm: Math.round(nm), kw: Math.round(nm * rpm / 9549), pedal: 96, tc: t - (c - i * T0) };
+  }
+  const status = (d, shiftOn) =>
+    d.g === 0 ? 'SYSTEM STATUS: STANDBY // 待命状態'
+      : d.g < 0 ? 'SYSTEM STATUS: CAUTION // 後退操作'
+        : d.rpm >= SHIFT ? 'SYSTEM STATUS: OVER REV // 回転数超過'
+          : d.pedal > 90 ? 'SYSTEM STATUS: FULL THROTTLE // 全力全開'
+            : 'SYSTEM STATUS: SYNCHRONIZATION ACTIVE // 同期中';
+
+  /* ---------- shared parts ---------- */
+  function revBar(ctx, x, y, w, h, rpm, flash) {
+    const seg = 28, gap = 2, sw = (w - gap * (seg - 1)) / seg, lit = Math.round(rpm / MAX * seg), strobe = rpm >= SHIFT && flash;
+    for (let i = 0; i < seg; i++) {
+      const fr = i / (seg - 1), c = fr < .6 ? AMBER : fr < .85 ? YEL : RED;
+      ctx.fillStyle = strobe ? '#ffffff' : c;
+      ctx.globalAlpha = (i < lit || strobe) ? 1 : .1;
+      ctx.fillRect(x + i * (sw + gap), y, sw, h);
+    }
+    ctx.globalAlpha = 1;
+  }
+  function brackets(ctx, x, y, w, h, s, color, a) {
+    ctx.strokeStyle = color; ctx.globalAlpha = a; ctx.lineWidth = 3;
+    [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]].forEach(([px, py, dx, dy]) => {
+      ctx.beginPath(); ctx.moveTo(px + dx * s, py); ctx.lineTo(px, py); ctx.lineTo(px, py + dy * s); ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  }
+  function hexPath(ctx, cx, cy, r) {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const an = Math.PI / 6 + i * Math.PI / 3, x = cx + r * Math.cos(an), y = cy + r * Math.sin(an);
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.closePath();
+  }
+  function gear(ctx, st, d, t, flash, cx, cy, maxW, maxH) {
+    const hot = d.rpm >= SHIFT && flash;
+    const fill = d.g < 0 ? RED : hot ? RED : AMBER;
+    const a = d.g <= 0 ? (flash ? .95 : .55) : 1;
+    if (d.g < 0) {
+      const px = Math.min(maxH * .6, maxW / 3.3);
+      T(ctx, st, 'g0', 'REVERSE', { font: FB, weight: 700, px: Math.round(px), ls: 2, fill, glow: [[fill, 22]], maxW }, cx, cy, 'c', a);
+    } else if (d.g === 0) {
+      const px = Math.round(Math.min(maxW / 2, maxH / 2) * .96);
+      T(ctx, st, 'g1', '出撃', { font: FJ, px, fill, glow: [[fill, 18]] }, cx, cy - px * .52, 'c', a);
+      T(ctx, st, 'g2', '待命', { font: FJ, px, fill, glow: [[fill, 18]] }, cx, cy + px * .52, 'c', a);
+    } else if (d.spd === 0) {
+      const px = Math.round(Math.min(maxW / 2, maxH) * .9);
+      T(ctx, st, 'g3', '予備', { font: FJ, px, fill, glow: [[fill, 20]] }, cx, cy, 'c', .95);
+    } else {
+      const e = t - d.tc, pop = e < .35 ? 1 + .12 * Math.exp(-e * 11) * Math.cos(e * 26) : 1;
+      const px = Math.round(maxH * 1.04);
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(pop, pop);
+      T(ctx, st, 'g4', String(d.g), { font: FJ, px, fill, glow: [[fill, Math.min(26, px * .1)]] }, 0, 0, 'c', 1);
+      ctx.restore();
+    }
+  }
+  function gearCaption(d) {
+    return d.g === 0 ? ['STANDBY MODE', '待命状態'] : d.g < 0 ? ['REVERSE GEAR', '後退操作'] : ['CURRENT GEAR', '主変速器'];
+  }
+  function magi(ctx, st, x, y, gapW, anchor) {
+    const names = ['MELCHIOR·1', 'BALTHASAR·2', 'CASPER·3'];
+    names.forEach((n, i) => {
+      const s = T(ctx, st, 'm' + i, n, { font: FB, weight: 600, px: 15, ls: 1, fill: AMBER }, x + (i - 1) * gapW, y, 'c', .78);
+      ctx.strokeStyle = AMBER; ctx.lineWidth = 1.5; ctx.globalAlpha = .55;
+      ctx.strokeRect(x + (i - 1) * gapW - s.w / 2 - 6, y - 12, s.w + 12, 24);
+      ctx.globalAlpha = 1;
+    });
+  }
+  function song(ctx, st, x, y, maxW, anchor) {
+    if (music !== 'on') return;
+    T(ctx, st, 'song', '♪  残酷な天使のテーゼ  /  高橋洋子', { font: FS, px: 18, fill: AMBER, maxW }, x, y, anchor || 'c', .92);
+  }
+
+  /* ---------- the three layouts ---------- */
+  const R = { x: 80, y: 62, w: 640, h: 380 };
+  function top(ctx, st, d, flash) {
+    T(ctx, st, 'status', status(d), { font: FJ, px: 16, fill: d.rpm >= SHIFT ? RED : AMBER, maxW: R.w }, R.x, 74, 'l', .85);
+    revBar(ctx, R.x, 88, R.w, 28, d.rpmLive, flash);
+  }
+  function datum(ctx, st, key, lab, val, unit, x, y, align, px) {
+    const vpx = px || 38;
+    T(ctx, st, key + 'l', lab, jp(15), x, y, align, .72);
+    const s = T(ctx, st, key + 'v', val, num(vpx), x + (align === 'r' ? (unit ? -28 : 0) : 0), y + vpx * .72, align, 1);
+    if (unit) {
+      const ux = align === 'r' ? x : x + s.w + 5;
+      T(ctx, st, key + 'u', unit, label(15), ux, y + vpx * .9, align === 'r' ? 'r' : 'l', .72);
+    }
+  }
+  const DRAW = {
+    A(ctx, st, d, t, flash) {
+      top(ctx, st, d, flash);
+      const fx = 264, fy = 126, fw = 272, fh = 248;
+      ctx.strokeStyle = AMBER; ctx.lineWidth = 2; ctx.globalAlpha = .42; ctx.strokeRect(fx, fy, fw, fh); ctx.globalAlpha = 1;
+      brackets(ctx, fx - 4, fy - 4, fw + 8, fh + 8, 16, AMBER, .9);
+      const cap = gearCaption(d);
+      T(ctx, st, 'c1', cap[0], label(15), fx + 8, fy + 14, 'l', .72);
+      T(ctx, st, 'c2', cap[1], jp(15), fx + 8, fy + 32, 'l', .62);
+      T(ctx, st, 'c3', '変速機 UNIT-01', jp(14), fx + 8, fy + fh - 14, 'l', .6);
+      T(ctx, st, 'c4', 'SYNC ' + (40 + d.rpm / 200).toFixed(1) + '%', label(14), fx + fw - 8, fy + fh - 14, 'r', .68);
+      gear(ctx, st, d, t, flash, fx + fw / 2, fy + fh / 2 + 6, fw - 40, fh - 66);
+      /* left wing: speed and boost */
+      T(ctx, st, 'sl', 'SPEED  速度', jp(15), R.x, 136, 'l', .72);
+      T(ctx, st, 'sv', String(d.spd), num(104), R.x + 90, 196, 'c', 1);
+      T(ctx, st, 'su', 'KM/H', label(18), R.x + 90, 256, 'c', .8);
+      ctx.fillStyle = AMBER; ctx.globalAlpha = .4; ctx.fillRect(R.x, 276, 172, 1.5); ctx.globalAlpha = 1;
+      datum(ctx, st, 'b', 'BOOST  増圧', d.boost.toFixed(2), 'BAR', R.x, 294, 'l', 42);
+      /* right wing */
+      const rx = R.x + R.w;
+      datum(ctx, st, 'o', 'OIL  油温', String(d.oil), '°C', rx, 134, 'r');
+      datum(ctx, st, 'w', 'WATER  水温', String(d.water), '°C', rx, 196, 'r');
+      datum(ctx, st, 't', 'TORQUE  トルク', String(d.nm), 'NM', rx, 258, 'r');
+      datum(ctx, st, 'p', 'POWER  出力', String(d.kw), 'KW', rx, 320, 'r');
+      magi(ctx, st, W / 2, 396, 136);
+      song(ctx, st, W / 2, 428, 560);
+    },
+    B(ctx, st, d, t, flash) {
+      top(ctx, st, d, flash);
+      const bx = R.x, by = 128, bw = 340, bh = 308;
+      brackets(ctx, bx, by, bw, bh, 22, AMBER, .9);
+      const cap = gearCaption(d);
+      T(ctx, st, 'c1', cap[0], label(16), bx + 12, by + 18, 'l', .72);
+      T(ctx, st, 'c2', cap[1], jp(16), bx + 12, by + 38, 'l', .62);
+      T(ctx, st, 'c3', '変速機 UNIT-01', jp(14), bx + 12, by + bh - 16, 'l', .6);
+      T(ctx, st, 'c4', 'SYNC ' + (40 + d.rpm / 200).toFixed(1) + '%', label(14), bx + bw - 12, by + bh - 16, 'r', .68);
+      gear(ctx, st, d, t, flash, bx + bw / 2, by + bh / 2 + 4, bw - 56, bh - 62);
+      const cx = bx + bw + 18, cw = R.x + R.w - cx;
+      T(ctx, st, 'sl', 'SPEED  速度', jp(15), cx, 138, 'l', .72);
+      const sv = T(ctx, st, 'sv', String(d.spd), num(112), cx, 192, 'l', 1);
+      T(ctx, st, 'su', 'KM/H', label(20), cx + sv.w + 8, 226, 'l', .8);
+      ctx.fillStyle = AMBER; ctx.globalAlpha = .45; ctx.fillRect(cx, 254, cw, 2); ctx.globalAlpha = 1;
+      const col2 = cx + cw / 2 + 6;
+      datum(ctx, st, 'b', 'BOOST  増圧', d.boost.toFixed(2), 'BAR', cx, 268, 'l', 36);
+      datum(ctx, st, 't', 'TORQUE  トルク', String(d.nm), 'NM', col2, 268, 'l', 36);
+      datum(ctx, st, 'o', 'OIL  油温', String(d.oil), '°C', cx, 330, 'l', 36);
+      datum(ctx, st, 'w', 'WATER  水温', String(d.water), '°C', col2, 330, 'l', 36);
+      ctx.fillStyle = AMBER; ctx.globalAlpha = .45; ctx.fillRect(cx, 390, cw, 2); ctx.globalAlpha = 1;
+      song(ctx, st, cx, 410, cw, 'l');
+      if (music !== 'on') T(ctx, st, 'mg', 'MELCHIOR·1  BALTHASAR·2  CASPER·3', { font: FB, weight: 600, px: 15, ls: 1, fill: AMBER, maxW: cw }, cx, 410, 'l', .78);
+      else T(ctx, st, 'mg2', 'MAGI  ■ ■ ■', { font: FB, weight: 600, px: 14, ls: 2, fill: AMBER }, cx, 432, 'l', .7);
+    },
+    C(ctx, st, d, t, flash) {
+      top(ctx, st, d, flash);
+      const cell = (x, y, r, a) => { hexPath(ctx, x, y, r); ctx.strokeStyle = AMBER; ctx.lineWidth = 2.5; ctx.globalAlpha = a; ctx.stroke(); ctx.globalAlpha = 1; };
+      const cx = 400, cy = 262, RR = 130;
+      hexPath(ctx, cx, cy, RR); ctx.strokeStyle = AMBER; ctx.lineWidth = 4; ctx.globalAlpha = .9; ctx.stroke(); ctx.globalAlpha = 1;
+      gear(ctx, st, d, t, flash, cx, cy, 190, 178);
+      /* speed */
+      cell(190, 262, 100, .8);
+      T(ctx, st, 'sl', '速度', jp(16), 190, 198, 'c', .72);
+      T(ctx, st, 'sv', String(d.spd), num(84), 190, 258, 'c', 1);
+      T(ctx, st, 'su', 'KM/H', label(17), 190, 316, 'c', .8);
+      /* data cells */
+      const dc = [
+        [565, 172, '油温', String(d.oil), '°C'], [664, 172, '水温', String(d.water), '°C'],
+        [614, 258, '増圧', d.boost.toFixed(2), 'BAR'],
+        [565, 344, 'トルク', String(d.nm), 'NM'], [664, 344, '出力', String(d.kw), 'KW'],
+      ];
+      dc.forEach((c, i) => {
+        cell(c[0], c[1], 56, .62);
+        T(ctx, st, 'dl' + i, c[2], jp(15), c[0], c[1] - 27, 'c', .72);
+        T(ctx, st, 'dv' + i, c[3], num(32), c[0], c[1] + 2, 'c', 1);
+        T(ctx, st, 'du' + i, c[4], label(14), c[0], c[1] + 28, 'c', .72);
+      });
+      [0, 1, 2].forEach((i) => {
+        const x = 138 + i * 52, y = 392; cell(x, y, 22, .6);
+        T(ctx, st, 'mh' + i, String(i + 1), label(17), x, y, 'c', .85);
+      });
+      T(ctx, st, 'ml', 'MAGI', label(15), 190, 424, 'c', .7);
+      song(ctx, st, 480, 424, 470);
+    },
+  };
+
+  /* ---------- scenery ---------- */
+  const scenery = {};
+  function buildScenery() {
+    ['night', 'day'].forEach((k) => {
+      const c = newCanvas(W, H), x = c.getContext('2d'), night = k === 'night', hz = 176;
+      const sky = x.createLinearGradient(0, 0, 0, hz);
+      if (night) { sky.addColorStop(0, '#05070d'); sky.addColorStop(1, '#1c2436'); }
+      else { sky.addColorStop(0, '#8fb0cd'); sky.addColorStop(1, '#dbe5ea'); }
+      x.fillStyle = sky; x.fillRect(0, 0, W, hz);
+      const gnd = x.createLinearGradient(0, hz, 0, H);
+      if (night) { gnd.addColorStop(0, '#0a0d10'); gnd.addColorStop(1, '#050607'); }
+      else { gnd.addColorStop(0, '#7b8a70'); gnd.addColorStop(1, '#4f5a48'); }
+      x.fillStyle = gnd; x.fillRect(0, hz, W, H - hz);
+      x.fillStyle = night ? '#16181c' : '#55585c';
+      x.beginPath(); x.moveTo(380, hz); x.lineTo(420, hz); x.lineTo(800, H); x.lineTo(0, H); x.closePath(); x.fill();
+      x.strokeStyle = night ? 'rgba(220,225,230,.5)' : 'rgba(245,245,245,.85)'; x.lineWidth = 3;
+      x.beginPath(); x.moveTo(384, hz); x.lineTo(30, H); x.moveTo(416, hz); x.lineTo(770, H); x.stroke();
+      let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      if (night) for (let i = 0; i < 46; i++) { x.fillStyle = 'rgba(255,' + (190 + rnd() * 50 | 0) + ',140,' + (.25 + rnd() * .6) + ')'; x.fillRect(rnd() * W, hz - 6 - rnd() * 20, 2, 2); }
+      else { x.fillStyle = '#6b7780'; for (let i = 0; i < 18; i++) { const w = 24 + rnd() * 40, h = 8 + rnd() * 34; x.fillRect(rnd() * W, hz - h, w, h); } }
+      x.fillStyle = night ? '#0b0c0e' : '#23262a'; x.fillRect(362, 226, 76, 42);
+      x.fillStyle = night ? '#101216' : '#3a4149'; x.fillRect(372, 208, 56, 20);
+      x.shadowColor = '#ff2a10'; x.shadowBlur = night ? 18 : 5; x.fillStyle = '#ff2a10';
+      x.fillRect(364, 234, 16, 7); x.fillRect(420, 234, 16, 7); x.shadowBlur = 0;
+      scenery[k] = c;
+    });
+  }
+  function drawScene(ctx) {
+    if (scene === 'black') { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); return; }
+    ctx.drawImage(scenery[scene], 0, 0);
+  }
+  function guides(ctx) {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.save(); ctx.lineWidth = 2; ctx.setLineDash([8, 7]); ctx.strokeStyle = 'rgba(255,255,255,.75)';
+    ctx.beginPath(); ctx.moveTo(40, H); ctx.lineTo(40, 36); ctx.lineTo(760, 36); ctx.lineTo(760, H); ctx.stroke(); ctx.restore();
+    ctx.strokeStyle = 'rgba(255,200,90,.9)'; ctx.lineWidth = 2; ctx.strokeRect(R.x, R.y, R.w, R.h);
+  }
+
+  /* ---------- wiring ---------- */
+  const stages = Array.from(document.querySelectorAll('canvas[data-dir]')).map((c) => ({ ctx: c.getContext('2d'), dir: c.dataset.dir, c: {} }));
+  function pills(el, items, get, set) {
+    Object.keys(items).forEach((k) => {
+      const b = document.createElement('button');
+      b.className = 'pill'; b.type = 'button'; b.textContent = items[k];
+      if (get() === k) b.classList.add('on');
+      b.addEventListener('click', () => {
+        set(k);
+        el.querySelectorAll('button').forEach((x) => x.classList.remove('on'));
+        b.classList.add('on');
+      });
+      el.appendChild(b);
+    });
+  }
+  pills(document.getElementById('modes'), MODES, () => mode, (k) => { mode = k; });
+  pills(document.getElementById('music'), { on: '有', off: '无' }, () => music, (k) => { music = k; });
+  pills(document.getElementById('guide'), { on: '显示', off: '隐藏' }, () => showGuide, (k) => { showGuide = k; });
+  pills(document.getElementById('scenes'), SCENES, () => scene, (k) => { scene = k; });
+
+  let last = 0;
+  function frame(ms) {
+    requestAnimationFrame(frame);
+    if (ms - last < 33) return;
+    last = ms;
+    const t = ms / 1000, flash = Math.floor(t * 8) % 2 === 0;
+    const liveNow = sim(t), snap = sim(Math.floor(t * 5) / 5);
+    /* rev bar moves at the shader's rate; the numbers at the text rate; gear follows the live state */
+    const d = Object.assign({}, snap, { rpmLive: liveNow.rpm, rpm: liveNow.rpm, g: liveNow.g, tc: liveNow.tc });
+    d.spd = snap.spd;
+    stages.forEach((st) => {
+      const ctx = st.ctx;
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+      drawScene(ctx);
+      ctx.globalCompositeOperation = 'lighter';
+      DRAW[st.dir](ctx, st, d, t, flash);
+      if (showGuide === 'on') guides(ctx);
+    });
+  }
+  Promise.all([
+    document.fonts.load('64px MatisseEB', '0123456789予備出撃待命変速機主待命状態後退操作同期中全力開回転数超過速度増圧油温水温トルク出力'),
+    document.fonts.load('700 64px BarlowC', 'REVERSE 0123'),
+    document.fonts.load('600 24px BarlowC', 'KM/H 0123'),
+  ]).catch(() => {}).then(() => { buildScenery(); requestAnimationFrame(frame); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Display Bench</title>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #161a20; --line: #262c35; --text: #d8dde4; --dim: #8a94a3;
+    --accent: #4fa3ff; --warn: #f0b429; --err: #ff6b6b; --ok: #3ecf8e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .pill { padding: 2px 8px; border-radius: 999px; background: var(--line); color: var(--dim); font-size: 12px; }
+  .pill.ok { background: rgba(62,207,142,.15); color: var(--ok); }
+  .pill.bad { background: rgba(255,107,107,.15); color: var(--err); }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; padding: 16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .stage { background: #000; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .stage .bar { display: flex; gap: 14px; align-items: center; color: var(--dim); margin-bottom: 8px; flex-wrap: wrap; }
+  canvas#hud { width: 100%; height: auto; display: block; background: #000; border-radius: 4px; }
+  .note { color: var(--dim); font-size: 12px; margin-top: 8px; }
+  aside { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 10px; font-weight: 600; }
+  .row { display: grid; grid-template-columns: 70px 1fr 56px; gap: 8px; align-items: center; margin: 6px 0; }
+  .row output { text-align: right; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; }
+  select, button { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; font: inherit; }
+  button { cursor: pointer; }
+  button:hover, select:hover { border-color: var(--accent); }
+  .seg { display: flex; gap: 6px; margin-bottom: 8px; }
+  .seg button.on { border-color: var(--accent); color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  td, th { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 500; }
+  #log { grid-column: 1 / -1; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; height: 220px; overflow: auto; font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+  #log .warn { color: var(--warn); } #log .error { color: var(--err); }
+  body.only header, body.only aside, body.only #log, body.only .bar, body.only .note { display: none; }
+  body.only main { display: block; padding: 0; } body.only .stage { padding: 0; border: 0; border-radius: 0; }
+  body.only canvas#hud { width: auto; border-radius: 0; }
+  label.chk { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .srow { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 6px 0; }
+  .srow select { max-width: 170px; }
+  .status { font-size: 13px; padding: 8px 10px; margin: 4px 0 10px; border-radius: 6px; background: rgba(127,127,127,.12); }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Bench</h1>
+  <span id="appState" class="pill">app: ?</span>
+  <span id="conn" class="pill">page: connecting</span>
+  <span class="pill" id="target">target: ?</span>
+  <button id="restart">Restart app</button>
+</header>
+<main>
+  <div class="stage">
+    <div class="bar">
+      <label class="chk"><input type="checkbox" id="outlines" checked> layer outlines</label>
+      <label class="chk"><input type="checkbox" id="road"> <span id="backdropName">backdrop</span></label>
+      <label class="chk" id="bmwLabel"><input type="checkbox" id="bmw" checked> BMW's speed</label>
+      <span id="fps"></span>
+    </div>
+    <canvas id="hud" width="800" height="480"></canvas>
+    <div class="note" id="stageNote">Pixels are the app's own: image layers are its raw RGBA pushes, gauges run its real GLSL shader in WebGL. Brightness, color and blur on the real display will differ; only the car shows that.</div>
+  </div>
+  <aside>
+    <section>
+      <h2>Center screen</h2>
+      <div id="status" class="status">status: waiting for the app</div>
+      <div id="settings"></div>
+      <div class="note">The app's page on the car's center screen: the status row, then the settings. A change here is pressed on the kit's stand-in HMI, the same way the car's drop-downs and checkboxes send it, and saved in bench/.data/&lt;app id&gt;/settings.json. A layout file saved into bench/.data/&lt;app id&gt;/layouts/ overrides the built-in one of that name, and the app reloads it by itself.</div>
+    </section>
+    <section>
+      <h2>Vehicle signals</h2>
+      <div class="seg"><button id="mDemo" class="on">Demo drive</button><button id="mManual">Manual</button></div>
+      <div class="seg" id="drive" title="The drive mode buttons: FES statusFESVehicleDynamicSwitchHMI"><button data-v="" class="on">Mode not sent</button><button data-v="4">COMFORT</button><button data-v="1">SPORT</button><button data-v="2">SPORT+</button><button data-v="7">ECO PRO</button></div>
+      <div id="sliders"></div>
+      <div class="note" id="sigNote">Demo drive is the kit's simulator (sim.js). It has no boost signal, so boost reads "--" here, as on a car that does not fill that field.</div>
+    </section>
+    <section>
+      <h2>Layers</h2>
+      <table><thead><tr><th>ref</th><th>kind</th><th>class/z</th><th>rect</th></tr></thead><tbody id="layers"></tbody></table>
+    </section>
+  </aside>
+  <div id="log"></div>
+</main>
+<script>
+(function () {
+  'use strict';
+  const CLASS_ORDER = { ambient: 0, content: 1, overlay: 2, alert: 3 };
+  const SIGNALS = [
+    ['rpm', 0, 8000, 50, 900], ['speed', 0, 250, 1, 0], ['oil', -20, 150, 1, 95], ['coolant', -20, 130, 1, 90],
+    ['boost', 0, 2.5, 0.05, 0], ['gear', -1, 8, 1, 1], ['gLong', -1.5, 1.5, 0.05, 0], ['gLat', -1.5, 1.5, 0.05, 0],
+  ];
+  const canvas = document.getElementById('hud');
+  const ctx = canvas.getContext('2d');
+  const logEl = document.getElementById('log');
+  let scene = [];
+  const images = new Map();     // key -> canvas holding the layer's pixels
+  let dirty = true;
+
+  /* ---------- WebGL for effect layers: the app's real fragment shader ---------- */
+  const glCanvas = document.createElement('canvas');
+  const gl = glCanvas.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true, alpha: true });
+  const VS = 'attribute vec2 a_pos; varying vec2 v_uv; void main(){ v_uv = vec2(a_pos.x * 0.5 + 0.5, 0.5 - a_pos.y * 0.5);  /* top-left, as cluster-render */ gl_Position = vec4(a_pos, 0.0, 1.0); }';
+  const programs = new Map();   // fs source -> {prog, err}
+  const shaderErrors = new Set();
+  const quad = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+
+  function compile(fs) {
+    if (programs.has(fs)) return programs.get(fs);
+    const mk = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    const v = mk(gl.VERTEX_SHADER, VS), f = mk(gl.FRAGMENT_SHADER, fs);
+    const p = gl.createProgram(); gl.attachShader(p, v); gl.attachShader(p, f); gl.linkProgram(p);
+    let entry;
+    if (!gl.getShaderParameter(f, gl.COMPILE_STATUS)) entry = { err: 'fragment shader does not compile: ' + gl.getShaderInfoLog(f) };
+    else if (!gl.getProgramParameter(p, gl.LINK_STATUS)) entry = { err: 'shader does not link: ' + gl.getProgramInfoLog(p) };
+    else entry = { prog: p };
+    programs.set(fs, entry);
+    return entry;
+  }
+
+  function drawEffect(l, t) {
+    const e = compile(l.fs);
+    if (e.err) {
+      if (!shaderErrors.has(l.key)) { shaderErrors.add(l.key); addLog({ level: 'error', text: 'bench: layer ' + l.ref + ' ' + e.err }); }
+      return null;
+    }
+    glCanvas.width = Math.max(1, l.w); glCanvas.height = Math.max(1, l.h);
+    gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(e.prog);
+    const loc = gl.getAttribLocation(e.prog, 'a_pos');
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const n = gl.getProgramParameter(e.prog, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) {
+      const info = gl.getActiveUniform(e.prog, i);
+      const u = gl.getUniformLocation(e.prog, info.name);
+      let v = l.uniforms[info.name];
+      if (info.name === 'u_time' && l.time) v = [t / 1000];
+      if (!v) continue;
+      if (info.type === gl.FLOAT) gl.uniform1f(u, v[0]);
+      else if (info.type === gl.FLOAT_VEC2) gl.uniform2fv(u, v.slice(0, 2));
+      else if (info.type === gl.FLOAT_VEC3) gl.uniform3fv(u, v.slice(0, 3));
+      else if (info.type === gl.FLOAT_VEC4) gl.uniform4fv(u, v.slice(0, 4));
+    }
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    return glCanvas;
+  }
+
+  /* ---------- compositing ---------- */
+  // view: the target the app draws on (its app.json config.target), from the server's hello
+  let view = 'hud', VW = 800, VH = 480;
+  function setView(v, targets) {
+    view = v; VW = targets[v][0]; VH = targets[v][1];
+    canvas.width = VW; canvas.height = VH;
+    document.getElementById('target').textContent = 'target: ' + v + ' ' + VW + ' x ' + VH;
+    document.getElementById('backdropName').textContent = v === 'panel' ? 'stock cluster backdrop' : 'road backdrop';
+    if (v === 'panel') document.getElementById('stageNote').textContent = 'The whole instrument cluster. The backdrop stands in for BMW\'s own gauges and the map window under our layers; the map window is where it sat on Max\'s X3. Anything the app draws opaque covers them, as it would on the car.';
+    dirty = true;
+  }
+  function drawRoad() {
+    const g = ctx.createLinearGradient(0, 0, 0, 480);
+    g.addColorStop(0, '#2a3340'); g.addColorStop(0.45, '#56606b'); g.addColorStop(0.46, '#2b2d30'); g.addColorStop(1, '#151618');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 800, 480);
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 4; ctx.setLineDash([30, 30]);
+    ctx.beginPath(); ctx.moveTo(400, 222); ctx.lineTo(400, 480); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // a rough stand-in for BMW's own cluster: two angular gauges and the map window (416,120 1088x480, from Max's photo Nov 4)
+  function drawStockCluster() {
+    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, VW, VH);
+    ctx.fillStyle = '#1d3b5c'; ctx.fillRect(416, 120, 1088, 480);
+    ctx.strokeStyle = '#2c5a8a'; ctx.lineWidth = 3;
+    for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.moveTo(416 + i * 136, 120); ctx.lineTo(416 + i * 136, 600); ctx.stroke(); }
+    ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '28px sans-serif'; ctx.fillText('map window', 860, 370);
+    [[210, 1], [1710, -1]].forEach(([cx, side]) => {
+      ctx.strokeStyle = '#c9ced6'; ctx.lineWidth = 6; ctx.beginPath();
+      ctx.moveTo(cx - 120 * side, 60); ctx.lineTo(cx + 60 * side, 60); ctx.lineTo(cx + 150 * side, 360); ctx.lineTo(cx + 60 * side, 660); ctx.lineTo(cx - 120 * side, 660); ctx.stroke();
+      ctx.strokeStyle = '#e8372c'; ctx.lineWidth = 18; ctx.beginPath(); ctx.moveTo(cx + 100 * side, 200); ctx.lineTo(cx + 140 * side, 340); ctx.stroke();
+    });
+    ctx.fillStyle = '#f2c94c'; ctx.beginPath(); ctx.arc(70, 640, 14, 0, 7); ctx.fill();
+    ctx.fillStyle = '#e8372c'; ctx.beginPath(); ctx.arc(1850, 640, 14, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '20px sans-serif'; ctx.fillText('warning lights', 20, 700); ctx.fillText('warning lights', 1770, 700);
+  }
+
+  // ?clean=1: no outlines, for screenshots
+  // ?only=1: just the target at 1:1 (800x480 HUD, 1920x720 cluster), nothing else
+  // ?backdrop=1: start with the backdrop on
+  if (/[?&](clean|only)=1/.test(location.search)) document.getElementById('outlines').checked = false;
+  if (/[?&]only=1/.test(location.search)) document.body.classList.add('only');
+  if (/[?&]backdrop=1/.test(location.search)) document.getElementById('road').checked = true;
+  let frames = 0, lastFpsT = performance.now();
+  function frame(t) {
+    const animated = scene.some((l) => l.kind === 'effect' && l.time);
+    if (dirty || animated) {
+      dirty = false;
+      ctx.clearRect(0, 0, VW, VH);
+      if (document.getElementById('road').checked) (view === 'panel' ? drawStockCluster : drawRoad)();
+      const hud = scene.filter((l) => l.target === view && l.visible)
+        .sort((a, b) => (CLASS_ORDER[a.class] - CLASS_ORDER[b.class]) || (a.z - b.z));
+      let start = 0;
+      hud.forEach((l, i) => { if (l.exclusive) start = i; });
+      hud.slice(start).forEach((l) => {
+        ctx.globalAlpha = l.opacity === undefined ? 1 : l.opacity;
+        // sx, sy, rotate: about the layer's centre (the service's default pivot)
+        ctx.save();
+        ctx.translate(l.x + l.w / 2, l.y + l.h / 2);
+        if (l.rotate) ctx.rotate(l.rotate * Math.PI / 180);
+        ctx.scale(l.sx === undefined ? 1 : l.sx, l.sy === undefined ? 1 : l.sy);
+        if (l.kind === 'image') { const c = images.get(l.key); if (c) ctx.drawImage(c, -l.w / 2, -l.h / 2, l.w, l.h); }
+        else if (l.kind === 'effect') { const c = drawEffect(l, t); if (c) ctx.drawImage(c, -l.w / 2, -l.h / 2, l.w, l.h); }
+        ctx.restore();
+        ctx.globalAlpha = 1;
+      });
+      if (view === 'hud' && document.getElementById('bmw').checked) drawBmwSpeed();
+      if (document.getElementById('outlines').checked) {
+        ctx.font = '11px ui-monospace, Menlo, monospace';
+        hud.forEach((l) => {
+          ctx.strokeStyle = 'rgba(79,163,255,.55)'; ctx.lineWidth = 1; ctx.strokeRect(l.x + .5, l.y + .5, l.w - 1, l.h - 1);
+          ctx.fillStyle = 'rgba(79,163,255,.8)'; ctx.fillText('#' + l.ref + ' ' + l.kind, l.x + 2, l.y - 3 < 9 ? l.y + l.h + 11 : l.y - 3);
+        });
+      }
+      frames++;
+    }
+    if (t - lastFpsT > 1000) { document.getElementById('fps').textContent = frames + ' redraws/s'; frames = 0; lastFpsT = t; }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  // Where BMW's own HUD content sits, read off photos of the car (tools/eva_layout.py BMW_ZONE). It draws over every layer
+  // and nothing can remove it, so it is drawn last: three digits, the worst case, and the limit sign.
+  function drawBmwSpeed() {
+    ctx.save();
+    ctx.fillStyle = '#ff2a2a'; ctx.fillRect(219, 327, 122, 3);
+    ctx.fillStyle = '#fff'; ctx.textBaseline = 'alphabetic';
+    ctx.font = '700 44px Helvetica, Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillText('120', 297, 377);
+    ctx.font = '700 15px Helvetica, Arial, sans-serif'; ctx.textAlign = 'left'; ctx.fillText('km/h', 303, 350);
+    ctx.fillRect(137, 320, 57, 62);
+    ctx.fillStyle = '#000'; ctx.textAlign = 'center';
+    ctx.font = '700 22px Helvetica, Arial, sans-serif'; ctx.fillText('40', 165, 349);
+    ctx.font = '400 12px Helvetica, Arial, sans-serif'; ctx.fillText('km/h', 165, 368);
+    ctx.restore();
+  }
+  ['outlines', 'road', 'bmw'].forEach((id) => document.getElementById(id).addEventListener('change', () => { dirty = true; }));
+
+  /* ---------- server events ---------- */
+  function addLog(e) {
+    const div = document.createElement('div');
+    div.className = e.level; div.textContent = e.text;
+    const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 4;
+    logEl.appendChild(div);
+    while (logEl.childNodes.length > 500) logEl.removeChild(logEl.firstChild);
+    if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function renderLayerTable() {
+    document.getElementById('layers').innerHTML = scene.map((l) =>
+      '<tr><td>' + l.ref + '</td><td>' + l.kind + '</td><td>' + l.class + ' / ' + l.z + '</td><td>' + l.x + ',' + l.y + ' ' + l.w + 'x' + l.h + '</td></tr>').join('');
+  }
+
+  let lastValues = {};
+  const es = new EventSource('/events');
+  es.onopen = () => { const c = document.getElementById('conn'); c.textContent = 'page: live'; c.className = 'pill ok'; };
+  es.onerror = () => { const c = document.getElementById('conn'); c.textContent = 'page: bench server gone'; c.className = 'pill bad'; };
+  es.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.t === 'log') addLog(m);
+    else if (m.t === 'hello') { setView(m.view || 'hud', m.targets); document.getElementById('title').textContent = 'Bench: ' + m.app; (m.extra || []).forEach(addSignal); }
+    else if (m.t === 'scene') {
+      scene = m.layers;
+      const keys = new Set(scene.map((l) => l.key));
+      Array.from(images.keys()).forEach((k) => { if (!keys.has(k)) images.delete(k); });
+      renderLayerTable(); dirty = true;
+    } else if (m.t === 'px') {
+      const bin = atob(m.b64); const arr = new Uint8ClampedArray(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      let c = images.get(m.key);
+      if (!c) { c = document.createElement('canvas'); images.set(m.key, c); }
+      c.width = m.iw; c.height = m.ih;
+      c.getContext('2d').putImageData(new ImageData(arr, m.iw, m.ih), 0, 0);
+      dirty = true;
+    } else if (m.t === 'settings') {
+      renderSettings(m);
+    } else if (m.t === 'status') {
+      document.getElementById('status').textContent = m.s;
+    } else if (m.t === 'app') {
+      const a = document.getElementById('appState');
+      a.textContent = 'app: ' + m.state; a.className = 'pill ' + (m.state === 'running' ? 'ok' : 'bad');
+    } else if (m.t === 'values') {
+      lastValues = m.values;
+      if (m.mode !== mode) setMode(m.mode, true);
+      if (mode === 'demo') SIGNALS.forEach(([k]) => {
+        const v = m.values[k];
+        document.getElementById('o_' + k).textContent = v === null || v === undefined ? '--' : (Math.round(v * 10) / 10);
+        if (v !== null && v !== undefined) document.getElementById('s_' + k).value = v;
+      });
+    }
+  };
+
+  /* ---------- controls ---------- */
+  let mode = 'demo';
+  const sl = document.getElementById('sliders');
+  function sliderRow([k, min, max, step, def]) {
+    sl.insertAdjacentHTML('beforeend', '<div class="row"><span>' + k + '</span><input type="range" id="s_' + k + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + def + '" disabled><output id="o_' + k + '">--</output></div>');
+  }
+  SIGNALS.forEach(sliderRow);
+  function values() { const o = {}; SIGNALS.forEach(([k]) => { o[k] = Number(document.getElementById('s_' + k).value); }); return o; }
+  function pushSignals() { fetch('/signals', { method: 'POST', body: JSON.stringify({ mode, values: values() }) }); }
+  function wireSlider([k]) {
+    document.getElementById('s_' + k).addEventListener('input', (e) => {
+      document.getElementById('o_' + k).textContent = e.target.value; pushSignals();
+    });
+  }
+  SIGNALS.forEach(wireSlider);
+  // a signal the app's app.json adds (config.benchSignals)
+  function addSignal(sig) {
+    if (SIGNALS.some(([k]) => k === sig[0])) return;
+    SIGNALS.push(sig); sliderRow(sig); wireSlider(sig);
+    document.getElementById('s_' + sig[0]).disabled = mode !== 'manual';
+  }
+  function setMode(m, fromServer) {
+    mode = m;
+    document.getElementById('mDemo').classList.toggle('on', m === 'demo');
+    document.getElementById('mManual').classList.toggle('on', m === 'manual');
+    SIGNALS.forEach(([k]) => {
+      const s = document.getElementById('s_' + k); s.disabled = m !== 'manual';
+      if (m === 'manual') { const v = lastValues[k]; if (v !== null && v !== undefined) s.value = v; document.getElementById('o_' + k).textContent = s.value; }
+    });
+    document.getElementById('sigNote').textContent = m === 'manual'
+      ? 'Manual values go in as raw SOME/IP values, the same fields and scaling the car sends (boost through FES displayBoostPressure), and the kit\'s car.js decodes them. Units here: rpm, km/h, deg C, bar.'
+      : 'Demo drive is the kit\'s simulator (sim.js). It has no boost signal, so boost reads "--" here, as on a car that does not fill that field.';
+    if (!fromServer) pushSignals();
+  }
+  document.getElementById('mDemo').onclick = () => setMode('demo');
+  document.querySelectorAll('#drive button').forEach((b) => b.onclick = () => {
+    document.querySelectorAll('#drive button').forEach((x) => x.classList.toggle('on', x === b));
+    fetch('/drive', { method: 'POST', body: JSON.stringify({ value: b.dataset.v === '' ? null : Number(b.dataset.v) }) });
+  });
+  document.getElementById('mManual').onclick = () => setMode('manual');
+  function renderSettings(m) {
+    const box = document.getElementById('settings');
+    box.innerHTML = '';
+    m.schema.forEach((s) => {
+      const row = document.createElement('div'); row.className = 'srow';
+      const lab = document.createElement('span'); lab.textContent = s.label; row.appendChild(lab);
+      let ctl;
+      if (s.type === 'bool') {
+        ctl = document.createElement('input'); ctl.type = 'checkbox'; ctl.checked = !!m.values[s.key];
+        ctl.onchange = () => setSetting(s.key, ctl.checked);
+      } else {
+        ctl = document.createElement('select');
+        const opts = s.type === 'choice' ? s.options : s.steps.map((v) => [v, v + (s.unit ? ' ' + s.unit : '')]);
+        opts.forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; if (v === m.values[s.key]) o.selected = true; ctl.appendChild(o); });
+        ctl.onchange = () => setSetting(s.key, s.type === 'number' ? Number(ctl.value) : ctl.value);
+      }
+      row.appendChild(ctl); box.appendChild(row);
+    });
+  }
+  function setSetting(key, value) { fetch('/setting', { method: 'POST', body: JSON.stringify({ key, value }) }); }
+  document.getElementById('restart').onclick = () => fetch('/restart', { method: 'POST' });
+})();
+</script>
+</body>
+</html>

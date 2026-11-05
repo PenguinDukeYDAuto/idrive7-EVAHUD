@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 2,
+  "name": "Calibration grid",
+  "_about": "For finding where things sit on the real screen: green lines every 100 px, faint ones every 50, labels are x/y in target pixels. Photograph it and the layouts get fitted to the photo.",
+  "widgets": [
+    {
+      "id": "grid",
+      "type": "grid",
+      "x": 0,
+      "y": 0,
+      "w": 800,
+      "h": 480,
+      "step": 50,
+      "major": 2
+    },
+    {
+      "id": "grid_labels",
+      "type": "gridlabels",
+      "z": 5,
+      "x": 0,
+      "y": 0,
+      "w": 800,
+      "h": 480,
+      "step": 100,
+      "font": "label"
+    }
+  ]
+}

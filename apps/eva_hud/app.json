@@ -1,0 +1,286 @@
+{
+  "id": "eva_hud",
+  "title": "EVA",
+  "description": "NERV battle display on the windshield HUD and the instrument cluster: giant gear, rev bar, speed and full-screen title-card alerts",
+  "version": "0.3.1",
+  "vendor": "custom",
+  "loggingId": "OAEV",
+  "iconGlyph": "EVA",
+  "credits": {
+    "title": "EVA HUD APP",
+    "text": "Free and open source by DukeAPenguin, based on Bimmer-Lab and idrive-apps"
+  },
+  "shared": [
+    "hud.js",
+    "hud_text.js",
+    "hud_data.js",
+    "hud_themes.js",
+    "layouts.js",
+    "shaders.js",
+    "shift_score.js",
+    "sun.js",
+    "cluster_render_client.js",
+    "eva_canvas.js",
+    "eva_alerts.js",
+    "eva_diag.js",
+    "eva_popups.js",
+    "eva_flicker.js",
+    "eva_hud.js",
+    "eva_dash.js"
+  ],
+  "signals": {
+    "de.bmw.infotainment.vehicle.CDS": {
+      "statusEngineSpeed2": "rs",
+      "statusEngineTemperature": "rs"
+    },
+    "de.bmw.infotainment.vehicle.CDS2": {
+      "statusLongitudinalAccelerationMassCenter": "rs",
+      "statusLateralAccelerationMassCenter": "rs"
+    },
+    "de.bmw.infotainment.vehicle.Vehicle2": {
+      "statusCarSpeed2": "rs"
+    },
+    "de.bmw.infotainment.drivingexcitement.FES": {
+      "statusSwitchDriveDynamicSport2": "rs",
+      "statusActualValueTorque2": "rs",
+      "statusFESVehicleDynamicSwitchHMI": "rs"
+    },
+    "de.bmw.infrastructure.VehicleInformation": {
+      "statusGearboxDrive": "s",
+      "DataPowerTrain2": "s"
+    },
+    "de.bmw.infotainment.KombiIF": {
+      "statusRangeTankStatus": "rs"
+    },
+    "de.bmw.infotainment.vehicle.TPMS": {
+      "statusTyrePressure": "rs",
+      "statusTyreTemperature": "rs",
+      "statusTargetTyrePressure": "rs"
+    },
+    "de.bmw.powertrain.AcceleratorPedal": {
+      "AngleAcceleratorPedal": "s"
+    },
+    "com.harman.infotainment.systemfunctions.tasu.tasu.InternalTasu": {
+      "_instances": "SystemFunctionsInternalTasuInst1",
+      "_methods": [
+        "sendTasuRequest"
+      ],
+      "_broadcasts": [
+        "sendTasuResponse"
+      ]
+    }
+  },
+  "screens": [
+    {
+      "name": "MAIN",
+      "kind": "menu",
+      "title": "EVA",
+      "settings": true,
+      "items": [
+        [
+          "text",
+          "STATUS",
+          "Starting the HUD"
+        ]
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "key": "screens",
+      "label": "Mode",
+      "type": "choice",
+      "default": "hud",
+      "options": [["off", "Off (BMW's own)"], ["hud", "HUD only"], ["dash", "Dash only"], ["both", "HUD + Dash"], ["grid", "HUD calibration grid"]]
+    },
+    {
+      "key": "redline",
+      "label": "Redline",
+      "type": "number",
+      "default": 7000,
+      "steps": [5500, 6000, 6500, 7000, 7500],
+      "unit": "rpm"
+    },
+    {
+      "key": "shiftBefore",
+      "label": "Shift point before redline",
+      "type": "number",
+      "default": 300,
+      "steps": [0, 100, 200, 300, 500, 800, 1000],
+      "unit": "rpm"
+    },
+    {
+      "key": "coldGuard",
+      "label": "Cold-engine rev guard",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "key": "alertsOn",
+      "label": "Full-screen alerts",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "key": "dismissAlert",
+      "label": "Hide the alerts showing now (until they clear)",
+      "type": "bool",
+      "default": false
+    },
+    {
+      "key": "alertPreview",
+      "label": "Preview an alert (parked only)",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        ["off", "Off"],
+        ["knock", "EMERGENCY (knock)"],
+        ["fuel", "FUEL CRITICAL"],
+        ["afr", "AFR ANOMALY"],
+        ["heat", "OVERHEAT"],
+        ["boost", "OVERBOOST"],
+        ["multi", "MULTIPLE ALERTS"]
+      ]
+    },
+    {
+      "key": "limitKnock",
+      "label": "EMERGENCY: knock retard at",
+      "type": "choice",
+      "default": "4.5",
+      "options": [
+        ["off", "Off"],
+        ["3", "3°"],
+        ["4.5", "4.5°"],
+        ["6", "6°"],
+        ["8", "8°"]
+      ]
+    },
+    {
+      "key": "limitFuel",
+      "label": "FUEL CRITICAL: rail pressure at",
+      "type": "choice",
+      "default": "30",
+      "options": [
+        ["off", "Off"],
+        ["10", "145 PSI"],
+        ["20", "290 PSI"],
+        ["30", "435 PSI"],
+        ["40", "580 PSI"],
+        ["50", "725 PSI"]
+      ]
+    },
+    {
+      "key": "limitAfrLow",
+      "label": "AFR ANOMALY: rich at",
+      "type": "choice",
+      "default": "10.6",
+      "options": [
+        ["off", "Off"],
+        ["10", "10.0"],
+        ["10.6", "10.6"],
+        ["11", "11.0"],
+        ["11.5", "11.5"]
+      ]
+    },
+    {
+      "key": "limitAfrHigh",
+      "label": "AFR ANOMALY: lean at",
+      "type": "choice",
+      "default": "18.4",
+      "options": [
+        ["off", "Off"],
+        ["16.9", "16.9"],
+        ["17.5", "17.5"],
+        ["18.4", "18.4"],
+        ["19.5", "19.5"]
+      ]
+    },
+    {
+      "key": "limitHeat",
+      "label": "OVERHEAT: coolant at",
+      "type": "choice",
+      "default": "118",
+      "options": [
+        ["off", "Off"],
+        ["105", "105 °C"],
+        ["110", "110 °C"],
+        ["115", "115 °C"],
+        ["118", "118 °C"],
+        ["120", "120 °C"],
+        ["125", "125 °C"]
+      ]
+    },
+    {
+      "key": "limitBoost",
+      "label": "OVERBOOST: boost at",
+      "type": "choice",
+      "default": "2",
+      "options": [
+        ["off", "Off"],
+        ["1.2", "17 PSI"],
+        ["1.4", "20 PSI"],
+        ["1.6", "23 PSI"],
+        ["1.8", "26 PSI"],
+        ["2", "29 PSI"],
+        ["2.2", "32 PSI"],
+        ["2.5", "36 PSI"],
+        ["3", "44 PSI"]
+      ]
+    },
+    {
+      "key": "demo",
+      "label": "Demo data",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        ["off", "Off"],
+        ["on", "On"]
+      ]
+    }
+  ],
+  "config": {
+    "target": "hud",
+    "statusName": "EVA HUD",
+    "socketPath": "/dev/shm/cluster-render/render.sock",
+    "utcOffsetMinutes": null,
+    "benchSignals": [
+      ["knock", 0, 12, 0.5, 0],
+      ["fuel", 0, 300, 5, 120],
+      ["afr", 9, 22, 0.1, 14.7],
+      ["pedal", 0, 100, 1, 20],
+      ["burn", 0, 60, 0.5, 8]
+    ],
+    "dme": {
+      "comment": "Read only, through kit/readonly-diag. Candidates are tried in order and the first plausible one wins (kit/dids.js). F4xx and OBD are the standard PIDs, as in cauliflowermossgrape's car_vitals. The BMW identifiers and their scaling are from that repository's Live Data catalog for DME8FF_R (MIT). Lambda stops at 1.99: a saturated sensor (fuel cut) is not a reading. None of this has been read on this car yet.",
+      "ecu": 18,
+      "knock": [
+        { "did": "554C", "bytes": 1, "signed": true, "factor": 0.375, "min": -48, "max": 48, "note": "mean ignition retard by knock control, deg" }
+      ],
+      "fuel": [
+        { "did": "F423", "bytes": 2, "factor": 0.1, "min": 0, "max": 500, "note": "fuel rail gauge pressure, bar" },
+        { "did": "F459", "bytes": 2, "factor": 0.1, "offset": -1, "min": 0, "max": 500, "note": "fuel rail absolute pressure, bar" },
+        { "obd": "23", "bytes": 2, "factor": 0.1, "min": 0, "max": 500, "note": "the same PID with OBD service 01" },
+        { "did": "58EF", "bytes": 2, "factor": 0.005, "min": 0, "max": 500, "note": "I_DRUCK_RAIL_ABS_FILT: 0.0005 MPa per bit, as bar" },
+        { "did": "5658", "bytes": 2, "factor": 0.02, "min": 0, "max": 500, "note": "I_DRUCK_RAIL_ABS_FILT_NEU: 0.002 MPa per bit, as bar" }
+      ],
+      "lambda": [
+        { "did": "5889", "bytes": 2, "factor": 0.000244140625, "min": 0.5, "max": 1.99, "note": "ILAG1, lambda actual" },
+        { "did": "5640", "bytes": 2, "factor": 0.000244140625, "min": 0.5, "max": 1.99, "note": "LAMBDA_SONDE_IST, lambda from the sensor" },
+        { "obd": "34", "bytes": 2, "factor": 0.000030517578125, "min": 0.5, "max": 1.99, "note": "OBD PID 0x34, bank 1 sensor 1" }
+      ],
+      "boost": [
+        { "did": "F470", "bytes": 2, "at": 3, "factor": 0.03125, "min": 20, "max": 600, "note": "OBD PID 0x70: actual boost pressure sensor A (absolute), 1/32 kPa" },
+        { "did": "F487", "bytes": 2, "at": 1, "factor": 0.03125, "min": 20, "max": 600, "note": "OBD PID 0x87: intake manifold absolute pressure sensor A, 1/32 kPa" },
+        { "did": "F40B", "bytes": 1, "factor": 1, "min": 20, "max": 255, "note": "OBD PID 0x0B: intake manifold absolute pressure, kPa" }
+      ],
+      "burn": [
+        { "did": "5656", "bytes": 2, "factor": 0.004291524, "min": 0, "max": 200, "note": "VOLUM_STROM_KRAFTST_MLS_LOKAL: 0.00119209 ml/s per bit, as L/h" },
+        { "obd": "5E", "bytes": 2, "factor": 0.05, "min": 0, "max": 200, "note": "OBD PID 0x5E: engine fuel rate, L/h" }
+      ],
+      "baro": [
+        { "did": "F433", "bytes": 1, "factor": 1, "min": 50, "max": 115, "note": "OBD PID 0x33: barometric pressure, kPa" },
+        { "obd": "33", "bytes": 1, "factor": 1, "min": 50, "max": 115, "note": "the same PID with OBD service 01" }
+      ]
+    }
+  }
+}
