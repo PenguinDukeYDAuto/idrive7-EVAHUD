@@ -52,11 +52,6 @@
     "de.bmw.infotainment.KombiIF": {
       "statusRangeTankStatus": "rs"
     },
-    "de.bmw.infotainment.vehicle.TPMS": {
-      "statusTyrePressure": "rs",
-      "statusTyreTemperature": "rs",
-      "statusTargetTyrePressure": "rs"
-    },
     "de.bmw.powertrain.AcceleratorPedal": {
       "AngleAcceleratorPedal": "s"
     },
@@ -92,6 +87,56 @@
       "type": "choice",
       "default": "hud",
       "options": [["off", "Off (BMW's own)"], ["hud", "HUD only"], ["dash", "Dash only"], ["both", "HUD + Dash"], ["grid", "HUD calibration grid"]]
+    },
+    {
+      "key": "gmtOffset",
+      "label": "Time zone (GMT offset)",
+      "type": "choice",
+      "default": "-5",
+      "options": [
+        ["unit", "Head unit's clock"],
+        ["-12", "GMT-12"],
+        ["-11", "GMT-11"],
+        ["-10", "GMT-10"],
+        ["-9", "GMT-9"],
+        ["-8", "GMT-8"],
+        ["-7", "GMT-7"],
+        ["-6", "GMT-6"],
+        ["-5", "GMT-5"],
+        ["-4", "GMT-4"],
+        ["-3", "GMT-3"],
+        ["-2", "GMT-2"],
+        ["-1", "GMT-1"],
+        ["0", "GMT+0"],
+        ["1", "GMT+1"],
+        ["2", "GMT+2"],
+        ["3", "GMT+3"],
+        ["4", "GMT+4"],
+        ["5", "GMT+5"],
+        ["6", "GMT+6"],
+        ["7", "GMT+7"],
+        ["8", "GMT+8"],
+        ["9", "GMT+9"],
+        ["10", "GMT+10"],
+        ["11", "GMT+11"],
+        ["12", "GMT+12"],
+        ["13", "GMT+13"],
+        ["14", "GMT+14"]
+      ]
+    },
+    {
+      "key": "motto",
+      "label": "Comfort message",
+      "type": "choice",
+      "default": "heaven",
+      "options": [
+        ["heaven", "God's in his heaven"],
+        ["project", "Human Instrumentality"],
+        ["angel", "No Angel detected"],
+        ["magi", "MAGI unanimous"],
+        ["field", "A.T. Field"],
+        ["run", "Mustn't run away"]
+      ]
     },
     {
       "key": "redline",

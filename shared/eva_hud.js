@@ -19,7 +19,8 @@
  * HUD Only - Comfort and Eco Pro are the everyday ones, 3 layers: no gear, no revs, nothing that flashes.
  *   evacorners effect layer; four thin corners that open a little with speed, for one number
  *   evaword    image layer; a title card's big word in P, R and N. Each word goes up once, then only its opacity changes
- *   evacanvas  the time, the range, and the tyres (Comfort) or the fuel use (Eco Pro)
+ *   evacanvas  the time, the range, and the line picked in the menu (Comfort) or the fuel use (Eco Pro)
+ *   evacolon   image layer, Comfort only; the clock's colon, which breathes. It goes up once, then only its opacity changes
  *
  * Alert state, 3 layers: when eva_alerts.js says so, the normal layers hide and hud/layouts/alert.json shows, with
  * the alert's own colour (theme role "alert"). The title is two image layers, the colour with its glow and a white
@@ -56,7 +57,7 @@ const ALERTS = {
     afr: { en: 'AFR ANOMALY', jp: '空燃比異常', rgb: [118, 255, 3], label: '空燃比  AFR', status: 'AFR DEVIATION // 混合気異常', preview: 18.8 },
     multi: { en: 'MULTIPLE ALERTS', jp: '多重警報発令', rgb: [255, 0, 51], label: '同時発生', status: '', preview: 3 },
 };
-const LIVE_SETTINGS = ['demo', 'alertsOn', 'dismissAlert', 'alertPreview', 'limitKnock', 'limitFuel', 'limitAfrLow', 'limitAfrHigh', 'limitHeat', 'limitBoost'];
+const LIVE_SETTINGS = ['demo', 'gmtOffset', 'motto', 'alertsOn', 'dismissAlert', 'alertPreview', 'limitKnock', 'limitFuel', 'limitAfrLow', 'limitAfrHigh', 'limitHeat', 'limitBoost'];
 const POPUP_SLOT_HUD = 0x322;
 // The everyday layouts' big word and the line over it, for P, R and N: same strings as tools/eva_layout.py.
 const WORDS = {
@@ -64,25 +65,31 @@ const WORDS = {
     R: { text: '緊急撤退', sub: 'RETREAT // 総員退避' },
     N: { text: '同期解除', sub: 'SYNCHRO CUT // 駆動系切離' },
 };
+// Comfort's lower right, picked in the menu: same strings as tools/eva_layout.py, which bakes their glyphs.
+const MOTTOS = {
+    heaven: ['神ハ天ニ在リ', '世ハ全テ事モ無シ'],
+    project: ['人類補完計画', '第3段階 進行中'],
+    angel: ['使徒反応無シ', 'パターン青 未検出'],
+    magi: ['MAGI 全会一致', '本日モ異常無シ'],
+    field: ['A.T.フィールド', '全周展開中'],
+    run: ['逃ゲチャダメダ', '逃ゲチャダメダ'],
+};
 const WORD_FADE_MS = 200;
+const COLON_BREATH_MS = 4000;   // in and out
+const COLON_LOW = 0.3;
+const COLON_STEPS = 20;         // of opacity: a send only when it reaches the next one, about 7 a second
 const OPEN_AT_KMH = 110;        // the everyday corners are fully open from here
 // HUD Only's layout for each drive mode. Sport is the battle display; Comfort and Eco Pro are the everyday ones.
 const HUD_ONLY = { sport: 'hud_only_sport', comfort: 'hud_only_comfort', eco: 'hud_only_eco' };
 const RANGE_NONE = 4095;        // what the car sends with no range to give
 const DEMO_RANGE = 412;
-// Range and tyres may never be notified (BMW's own x_call only reads the tyres), so they are read every READ_MS, and
-// hold until the reads stop: a parked car says nothing new for minutes, and these don't change by the second.
-const KOMBI = 'de.bmw.infotainment.KombiIF', TPMS = 'de.bmw.infotainment.vehicle.TPMS';
+// The range may never be notified, so it is read every READ_MS, and holds until the reads stop: a parked car says
+// nothing new for minutes, and the range doesn't change by the second.
+const KOMBI = 'de.bmw.infotainment.KombiIF';
 const READ_MS = 10000, READ_FRESH_MS = 60000;
-const CORNERS = ['FL', 'FR', 'RL', 'RR'];
-const PRESSURE_NONE = 65532;    // and up; 0.1 bar a step
-const TEMP_NONE = 65535;        // °C + 40
-const TYRE_LOW_TENTHS = 20;             // 0.1 bar: low under this, when the car gives no target
-const TYRE_UNDER_TARGET_TENTHS = 3;     // low this far under the target
 const BURN_MIN_KMH = 5;                 // slower, L/100km says nothing
 const BURN_MAX = 99.9;
 const BURN_FRESH_MS = 5000;
-const DEMO_TYRES = { FL: { p: 2.4, t: 27 }, FR: { p: 2.4, t: 28 }, RL: { p: 2.5, t: 26 }, RR: { p: 2.5, t: 26 } };
 const PSI_PER_BAR = 14.5038;
 const HP_PER_KW = 1.34102;
 const RUNNING_RPM = 500;
@@ -103,7 +110,6 @@ class EvaHud extends HudApp {
         this.alertLayers = null;         // the alert's three layers, made at the first one
         this.normalHidden = false;
         this.popups = view && view.primary ? view.primary.popups : new PopupWatch({ log: this.log });
-        this.tyres = { FL: {}, FR: {}, RL: {}, RR: {} };
         this.givingWay = false;
         ctx.settings.onChange((key) => this._guard('setting ' + key, () => this._liveSetting(key)));
     }
@@ -184,15 +190,9 @@ class EvaHud extends HudApp {
     }
 
     _startReads() {
-        const read = (iface, handlers) => Promise.resolve()
-            .then(() => this.ctx.signals.watch(iface, '1', handlers, this.log, { pollMs: READ_MS }))
-            .catch((e) => this.log.info(iface.split('.').pop() + ' not read: ' + (e && e.message || e)));
-        read(KOMBI, { statusRangeTankStatus: (v) => this._onRange(v) });
-        read(TPMS, {
-            statusTyrePressure: (v) => this._tyreBars(v, 'actualValuePressureTyre', 'p'),
-            statusTargetTyrePressure: (v) => this._tyreBars(v, 'targetPressureTyre', 'target'),
-            statusTyreTemperature: (v) => this._onTemperature(v),
-        });
+        Promise.resolve()
+            .then(() => this.ctx.signals.watch(KOMBI, '1', { statusRangeTankStatus: (v) => this._onRange(v) }, this.log, { pollMs: READ_MS }))
+            .catch((e) => this.log.info('KombiIF not read: ' + (e && e.message || e)));
     }
 
     _onRange(v) {
@@ -205,42 +205,6 @@ class EvaHud extends HudApp {
     _range() {
         if (this.car.data().demo) return DEMO_RANGE;    // only ever under the demo setting
         return isNum(this.rangeNow) && Date.now() - this.rangeAt < READ_FRESH_MS ? this.rangeNow : null;
-    }
-
-    /** A pressure of each tyre, in bar: what it is ('p') or what it should be ('target'). */
-    _tyreBars(v, field, what) {
-        const now = Date.now();
-        CORNERS.forEach((k) => {
-            const raw = v && v[field + k + 'H'];
-            this.tyres[k][what] = isNum(raw) && raw >= 0 && raw < PRESSURE_NONE ? raw * 0.1 : null;
-            this.tyres[k][what + 'At'] = now;
-        });
-    }
-
-    _onTemperature(v) {
-        const now = Date.now();
-        CORNERS.forEach((k) => {
-            const raw = v && v['actualValueTemperatureTyre' + k + 'H'];
-            const t = isNum(raw) && raw !== TEMP_NONE ? raw - 40 : null;
-            this.tyres[k].t = t !== null && t >= -40 && t <= 150 ? t : null;
-            this.tyres[k].tAt = now;
-        });
-    }
-
-    /** Whether a tyre is low: well under the car's target for it or, with no target, under a plain line. No reading is not low. */
-    _tyreLow(k) {
-        const p = this._tyre(k, 'p'), target = this._tyre(k, 'target');
-        if (!isNum(p)) return false;
-        const tenths = Math.round(p * 10);      // the car sends tenths: no comparing 2.3000000000000003
-        return isNum(target) ? Math.round(target * 10) - tenths >= TYRE_UNDER_TARGET_TENTHS : tenths < TYRE_LOW_TENTHS;
-    }
-
-    /** One tyre: pressure or target in bar, or temperature in °C, or null. Made up only under the demo setting. */
-    _tyre(k, what) {
-        if (this.car.data().demo) return DEMO_TYRES[k] ? DEMO_TYRES[k][what] : null;
-        const y = this.tyres[k];
-        if (!y || !isNum(y[what]) || Date.now() - y[what + 'At'] >= READ_FRESH_MS) return null;
-        return y[what];
     }
 
     /** Replaces the engine's boost-only link: one read-only link for every channel. */
@@ -299,6 +263,14 @@ class EvaHud extends HudApp {
         return { kind: 'digit', text: String(Math.min(9, d.gear)) };
     }
 
+    /** The time here. The head unit's clock runs on UTC and nothing an app can read says its zone, so the owner picks it. */
+    _now() {
+        const off = this.setting('gmtOffset');
+        if (off === 'unit') return super._now();
+        const d = new Date(Date.now() + Number(off) * 3600000);
+        return { getHours: () => d.getUTCHours(), getMinutes: () => d.getUTCMinutes() };
+    }
+
     /** Which big word the everyday layouts show: P, R or N, and none in D, even stopped at a light. */
     _wordKey() {
         const d = this.car.data();
@@ -321,8 +293,7 @@ class EvaHud extends HudApp {
 
     /** A part's reason to go amber. */
     _warn(name) {
-        if (name === 'reverse') return this._wordKey() === 'R';
-        return name.indexOf('tyreLow:') === 0 && this._tyreLow(name.slice(8));
+        return name === 'reverse' && this._wordKey() === 'R';
     }
 
     _statusLine() {
@@ -350,12 +321,14 @@ class EvaHud extends HudApp {
     }
 
     _token(tok) {
-        if (tok.indexOf('tyreP:') === 0) { const p = this._tyre(tok.slice(6), 'p'); return isNum(p) ? (p * PSI_PER_BAR).toFixed(0) : '--'; }
-        if (tok.indexOf('tyreT:') === 0) { const t = this._tyre(tok.slice(6), 't'); return isNum(t) ? t.toFixed(0) + '°' : '--'; }
         const a = this.alertKey ? ALERTS[this.alertKey] : null;
         switch (tok) {
             case 'statusline': return this._statusLine();
             case 'wordsub': { const k = this._wordKey(); return k ? WORDS[k].sub : ''; }
+            case 'motto1': return (MOTTOS[this.setting('motto')] || MOTTOS.heaven)[0];
+            case 'motto2': return (MOTTOS[this.setting('motto')] || MOTTOS.heaven)[1];
+            case 'hh': return this._token('time').split(':')[0];
+            case 'mm': return this._token('time').split(':')[1];
             case 'burn': { const b = this._burn(); return isNum(b) ? b.toFixed(1) : '--'; }
             case 'range': { const r = this._range(); return isNum(r) ? r.toFixed(0) : '--'; }
             case 'u:range': return 'KM';
@@ -397,9 +370,9 @@ class EvaHud extends HudApp {
     /* ---------------- normal layers ---------------- */
 
     _create(w) {
-        if (['evaseg', 'evaframe', 'evagear', 'evacanvas', 'evasolo', 'evacorners', 'evaword'].indexOf(w.type) < 0) { super._create(w); return; }
+        if (['evaseg', 'evaframe', 'evagear', 'evacanvas', 'evasolo', 'evacorners', 'evaword', 'evacolon'].indexOf(w.type) < 0) { super._create(w); return; }
         const base = { target: this.target, klass: w.class || 'content', z: w.z || 0, x: w.x, y: w.y, w: w.w, h: w.h };
-        const image = w.type === 'evagear' || w.type === 'evacanvas' || w.type === 'evaword';
+        const image = ['evagear', 'evacanvas', 'evaword', 'evacolon'].indexOf(w.type) >= 0;
         if (w.type === 'evaword') Object.assign(base, { sx: w.sx, sy: w.sy, opacity: 0 });
         const ref = image ? this.client.image(Object.assign({ iw: w.w, ih: w.h }, base)) : this.client.effect(Object.assign({ fs: shaders[w.type] }, base));
         if (!ref) { this.log.warn('widget "' + w.id + '": layer refused'); return; }
@@ -437,6 +410,8 @@ class EvaHud extends HudApp {
             this.client.uniform(ref, 'u_lowerLeft', [w.lowerLeft]);
         } else if (w.type === 'evacanvas') {
             x.canvas = this._textCanvas(w.parts);
+        } else if (w.type === 'evacolon') {
+            this.client.pixels(ref, null, textRaster.drawText(w.w, w.h, ':', { font: w.font, color: color(t, 'fg'), glow: t.glow, x: w.pad, offsetY: w.offsetY }));
         }
         this._update(x, Date.now(), true);
     }
@@ -449,6 +424,7 @@ class EvaHud extends HudApp {
         else if (type === 'evasolo') this._updateSolo(x, force);
         else if (type === 'evacorners') this._updateCorners(x, force);
         else if (type === 'evaword') this._updateWord(x, now, force);
+        else if (type === 'evacolon') this._updateColon(x, now);
         else if (type !== 'evaframe') super._update(x, now, force);
     }
 
@@ -467,6 +443,15 @@ class EvaHud extends HudApp {
         if (!force && ins === x.last) return;
         x.last = ins;
         this.client.uniform(x.ref, 'u_ins', [ins]);
+    }
+
+    /** The clock's colon breathing: bright at the top of each breath, and only the layer's opacity goes up. */
+    _updateColon(x, now) {
+        const breath = 0.5 + 0.5 * Math.cos(2 * Math.PI * now / COLON_BREATH_MS);
+        const op = Math.round((COLON_LOW + (1 - COLON_LOW) * breath) * COLON_STEPS) / COLON_STEPS;
+        if (op === x.op) return;
+        x.op = op;
+        this.client.set(x.ref, { opacity: op });
     }
 
     /** The big word: one upload per word, then only the layer's opacity. A different word waits for the old one to fade out. */

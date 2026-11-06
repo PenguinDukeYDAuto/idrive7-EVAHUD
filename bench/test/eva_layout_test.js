@@ -50,7 +50,7 @@ const rightEdge = (y) => (y < 100 ? 1420 + 3.45 * y : y < 200 ? 1765 + 1.25 * (y
 const visible = (r) => r.x >= leftEdge(r.y) && r.x + r.w <= rightEdge(r.y);
 const onScreen = (c, p) => ({ x: c.x + p.x, y: c.y + p.y, w: p.w, h: p.h });
 // the service counts every image twice (Compositor::add_image)
-const imageBytes = (w) => (w.type === 'evagear' || w.type === 'evacanvas' || w.type === 'evaword' ? w.w * w.h * 4 * 2 : 0);
+const imageBytes = (w) => (['evagear', 'evacanvas', 'evaword', 'evacolon'].indexOf(w.type) >= 0 ? w.w * w.h * 4 * 2 : 0);
 const normalBytes = (l) => l.widgets.reduce((n, w) => n + imageBytes(w), 0);
 const alertBytes = (al) => normalBytes(al) + 2 * al.title.w * al.title.h * 4 * 2;
 
@@ -61,6 +61,13 @@ function overlaps(parts) {
 }
 
 const tests = {
+    'the app icon is a 140x140 PNG with an alpha channel, the size the head unit menu uses'() {
+        const png = fs.readFileSync(path.join(HUD, '../icon.png'));
+        assert.strictEqual(png.toString('latin1', 1, 4), 'PNG');
+        assert.strictEqual(png.readUInt32BE(16), 140);
+        assert.strictEqual(png.readUInt32BE(20), 140);
+        assert.strictEqual(png[25], 6, 'colour type 6 is RGBA');
+    },
     'the normal layout and an alert together stay within the 8 layers a client may have'() {
         const alertLayers = alert.widgets.length + 2;     // the title: a colour layer and a white one
         assert.ok(eva.widgets.length + alertLayers <= 8, eva.widgets.length + ' + ' + alertLayers);
@@ -304,11 +311,30 @@ const tests = {
             assert.strictEqual(c.open, 5);
         });
     },
-    'Comfort and Eco Pro are three layers, and with an alert stay well within the 8'() {
+    'Comfort is four layers with its colon, Eco Pro three, and with an alert they stay within the 8'() {
+        assert.deepStrictEqual(comfort().widgets.map((w) => w.type), ['evacorners', 'evaword', 'evacanvas', 'evacolon']);
+        CALM().filter((l) => l.name !== comfort().name).forEach((l) => assert.ok(!l.widgets.some((w) => w.type === 'evacolon'), l.name));
         CALM().forEach((l) => {
-            assert.deepStrictEqual(l.widgets.map((w) => w.type), ['evacorners', 'evaword', 'evacanvas'], l.name);
             assert.ok(l.widgets.length + alert.widgets.length + 2 <= 7, l.name + ': ' + l.widgets.length);
         });
+    },
+    'Comfort\'s clock is laid out as before, with the colon on a layer of its own between the digits'() {
+        const c = canvasOf(comfort()), hh = c.parts.find((p) => p.id === 'hh'), mm = c.parts.find((p) => p.id === 'mm');
+        const colon = comfort().widgets.find((w) => w.type === 'evacolon'), f = font(hh.font);
+        assert.strictEqual(hh.text, '{{hh}}');
+        assert.strictEqual(mm.text, '{{mm}}');
+        assert.ok(!c.parts.some((p) => p.id === 'time'), 'the clock is still one part');
+        assert.ok(colon.z > c.z, 'under the text');
+        const digits = '0123456789'.split('').map((d) => f.glyphs[d].advance);
+        assert.ok(digits.every((a) => a === digits[0]), 'digits of different widths would move the colon');
+        const penHh = c.x + hh.x + hh.textX, penColon = colon.x + colon.pad, penMm = c.x + mm.x + mm.textX;
+        assert.strictEqual(penColon, penHh + 2 * digits[0], 'the colon follows the hours');
+        assert.strictEqual(penMm, penColon + f.glyphs[':'].advance, 'the minutes follow the colon');
+        assert.strictEqual(colon.y + colon.offsetY, c.y + hh.y + hh.offsetY, 'on the same line');
+        assert.strictEqual(colon.font, hh.font);
+        assert.ok(imageBytes(colon) < 32 * 1024, imageBytes(colon) + ' bytes');
+        const r = onGlass(colon);
+        assert.ok(r.x >= 0 && r.y >= 0, 'off the glass');
     },
     'their parts never overlap, lie inside their canvas, have their glyphs and fit'() {
         CALM().forEach((l) => {
@@ -334,40 +360,39 @@ const tests = {
     'Comfort: the place, a giant time in the title type, and the range under it'() {
         const c = canvasOf(comfort()), part = (id) => c.parts.find((p) => p.id === id);
         assert.strictEqual(part('place').text, '第3新東京市');
-        assert.strictEqual(part('time').text, '{{time}}');
         assert.strictEqual(part('range').text, '{{range}} KM');
-        assert.strictEqual(font(part('time').font).source, 'MatissePro-EB.otf');
-        assert.ok(font(part('time').font).size >= 66, 'giant');
-        assert.ok(part('place').y < part('time').y && part('time').y < part('range').y, 'top to bottom');
-        c.parts.filter((p) => p.type === 'text' && p.id !== 'time').forEach((p) => assert.ok(font(p.font).size < font(part('time').font).size, p.id + ' outshouts the time'));
+        assert.strictEqual(font(part('hh').font).source, 'MatissePro-EB.otf');
+        assert.ok(font(part('hh').font).size >= 66, 'giant');
+        assert.ok(part('place').y < part('hh').y && part('hh').y < part('range').y, 'top to bottom');
+        c.parts.filter((p) => p.type === 'text' && p.id !== 'hh' && p.id !== 'mm').forEach((p) => assert.ok(font(p.font).size < font(part('hh').font).size, p.id + ' outshouts the time'));
     },
-    'Comfort shows each tyre\'s name, pressure and temperature, each on its wheel\'s side, below the big word'() {
+    'Comfort has no tyres: the line picked in the menu is where they were, in the title type and big enough to read'() {
         const c = canvasOf(comfort()), part = (id) => c.parts.find((p) => p.id === id);
-        const names = { fl: '左前', fr: '右前', rl: '左後', rr: '右後' };
-        Object.keys(names).forEach((w) => {
-            const k = w.toUpperCase();
-            assert.strictEqual(part('tn_' + w).text, names[w]);
-            assert.strictEqual(part('tp_' + w).text, '{{tyreP:' + k + '}}');
-            assert.strictEqual(part('tt_' + w).text, '{{tyreT:' + k + '}}');
-            ['tn_', 'tp_', 'tt_'].forEach((pre) => assert.strictEqual(part(pre + w).warnWhen, 'tyreLow:' + k, pre + w));
-            assert.ok(part('tn_' + w).x < part('tp_' + w).x && part('tp_' + w).x < part('tt_' + w).x, 'name, pressure, temperature');
+        assert.strictEqual(part('motto1').text, '{{motto1}}');
+        assert.strictEqual(part('motto2').text, '{{motto2}}');
+        ['motto1', 'motto2'].forEach((id) => {
+            const r = onScreen(c, part(id));
+            assert.strictEqual(font(part(id).font).source, 'MatissePro-EB.otf');
+            assert.ok(font(part(id).font).size >= 28, id + ' is too small to read');
+            assert.strictEqual(part(id).color, 'soft');
+            assert.strictEqual(r.x, onScreen(canvasOf(eco()), canvasOf(eco()).parts.find((p) => p.id === 'burn_l')).x, 'starts where Eco Pro\'s fuel use starts');
+            assert.ok(r.x >= BMW.x + BMW.w, 'beside BMW\'s speed');
+            assert.ok(r.y + r.h <= 378, 'above the corners\' bottom edge');
         });
-        assert.ok(part('tn_fl').x < part('tn_fr').x && part('tn_rl').x < part('tn_rr').x, 'left wheels on the left');
-        assert.ok(part('tn_fl').y < part('tn_rl').y && part('tn_fr').y < part('tn_rr').y, 'front wheels on top');
-        assert.strictEqual(part('tn_fl').y, part('tn_fr').y);
-        assert.strictEqual(part('tn_rl').y, part('tn_rr').y);
-        assert.strictEqual(part('tn_fl').x, part('tn_rl').x);
+        assert.ok(part('motto1').y < part('motto2').y);
+        c.parts.forEach((p) => assert.ok(!/^t[npt]_/.test(p.id) && !/tyre/.test(p.text || '') && !p.warnWhen || p.warnWhen === 'reverse', p.id + ' is about the tyres'));
         assert.ok(!c.parts.some((p) => p.id === 'car'), 'the little car is back');
+        assert.ok(!fs.existsSync(path.join(HUD, 'fonts/num21.json')), 'the tyres\' digits are still baked');
     },
-    'the tyres\' longest values fit, and every glyph is there'() {
-        const c = canvasOf(comfort());
-        ['fl', 'fr', 'rl', 'rr'].forEach((w) => {
-            const p = c.parts.find((x) => x.id === 'tp_' + w), t = c.parts.find((x) => x.id === 'tt_' + w);
-            Array.from('--0123456789').forEach((ch) => assert.ok(font(p.font).glyphs[ch], 'pressure glyph ' + ch));
-            Array.from('--0123456789°').forEach((ch) => assert.ok(font(t.font).glyphs[ch], 'temperature glyph ' + ch));
-            assert.ok(width('99', font(p.font)) <= p.w && width('--', font(p.font)) <= p.w, w + ' pressure');
-            assert.ok(width('-40°', font(t.font)) <= t.w, w + ' temperature');
-        });
+    'Comfort\'s place name is big enough to read, inside its corner and clear of the clock'() {
+        const c = canvasOf(comfort()), corners = comfort().widgets.find((w) => w.type === 'evacorners');
+        const place = c.parts.find((p) => p.id === 'place'), hh = c.parts.find((p) => p.id === 'hh'), r = onScreen(c, place), f = font(place.font);
+        assert.strictEqual(f.source, 'MatissePro-EB.otf');
+        assert.ok(f.size >= 26, 'still small: ' + f.size);
+        assert.strictEqual(place.color, 'soft');
+        assert.ok(r.x >= corners.x + 12 && r.y >= corners.y + 4, 'on the corner: ' + [r.x, r.y]);
+        const digitTop = hh.y + hh.offsetY + font(hh.font).baseline - Math.round(font(hh.font).size * 0.8);
+        assert.ok(place.y + f.baseline < digitTop, 'on the clock');
     },
     'Eco Pro: the range first, the time under it, and the fuel use at the lower right, with no tyres'() {
         const c = canvasOf(eco()), part = (id) => c.parts.find((p) => p.id === id);
@@ -453,13 +478,15 @@ const tests = {
             assert.deepStrictEqual([m.w, m.h], [p.w, p.h]);
             assert.ok(p.w < 70, 'small');
             assert.strictEqual(Buffer.from(m.alpha, 'base64').length, m.w * m.h);
-            const r = onScreen(c, p);
-            assert.ok(r.x + r.w <= 664 && r.x > 600 && r.y < 130, 'in the top right corner: ' + [r.x, r.y]);
+            const r = onScreen(c, p), corners = l.widgets.find((w) => w.type === 'evacorners');
+            assert.ok(corners.x + corners.w - (r.x + r.w) >= 28, 'too near the right edge: ' + (corners.x + corners.w - (r.x + r.w)));
+            assert.ok(r.y - corners.y >= 18, 'too near the top edge: ' + (r.y - corners.y));
+            assert.ok(r.x > 580 && r.y < 150, 'no longer in the top right: ' + [r.x, r.y]);
         });
     },
-    'the app reads the tyres\' target pressure, and knows where the fuel use comes from'() {
+    'the app does not ask for the tyres, and knows where the fuel use comes from'() {
         const spec = JSON.parse(fs.readFileSync(path.join(HUD, '..', 'app.json'), 'utf8'));
-        assert.ok(spec.signals['de.bmw.infotainment.vehicle.TPMS'].statusTargetTyrePressure, 'target pressure');
+        assert.ok(!spec.signals['de.bmw.infotainment.vehicle.TPMS'], 'TPMS is still in app.json');
         const burn = spec.config.dme.burn, by = (k, v) => burn.find((c) => c[k] === v);
         assert.ok(by('did', '5656') && by('obd', '5E'), 'both candidates');
         assert.ok(Math.abs(by('did', '5656').factor - 0.00119209 * 3.6) < 1e-6, 'ml/s to L/h');
