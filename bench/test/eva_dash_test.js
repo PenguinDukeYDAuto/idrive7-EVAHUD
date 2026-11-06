@@ -139,8 +139,8 @@ const WORD_SETTLE = 500;       // longer than a fade out and a fade in
 const wordLayer = (a) => Array.from(a.hud().layers.values()).find((l) => l.sy === 1.5);
 const wordWrites = (a) => { const w = wordLayer(a); return a.hud().sent.filter((s) => a.hud().layers.get(s.ref) === w); };
 /** The app in HUD Only with real data off, in that drive mode, with the car's data under the test's hand. */
-async function everyday(mode) {
-    const a = startApp({ screens: 'hud', demo: 'off' });
+async function everyday(mode, settings) {
+    const a = startApp(Object.assign({ screens: 'hud', demo: 'off' }, settings));
     await wait(SETTLE_MS);
     const hud = counts.evas[0], data = { speed: 60, stage: 'D', gear: 3, rpm: 2000 };
     hud.car.data = () => data;
@@ -271,7 +271,7 @@ const tests = {
         await wait(150);
         assert.strictEqual(a.hud().nextRef, before);
     },
-    async 'Comfort and Eco Pro stay still at the shift point: three layers, nothing that flashes'() {
+    async 'Comfort and Eco Pro stay still at the shift point: nothing that flashes'() {
         for (const mode of ['COMFORT', 'ECO_PRO']) {
             const a = startApp({ screens: 'hud' });
             await wait(150);
@@ -280,7 +280,7 @@ const tests = {
             const hud = counts.evas[0];
             hud._shift = () => ({ now: true, rpm: 1000, oilCold: false, cold: false });
             await wait(400);
-            assert.strictEqual(a.hud().layers.size, 3, mode);
+            assert.strictEqual(a.hud().layers.size, mode === 'COMFORT' ? 4 : 3, mode);
             assert.ok(!Array.from(a.hud().layers.values()).some((l) => l.fs && /u_strobe/.test(l.fs)), mode + ' has a strobe');
             assert.deepStrictEqual(a.hud().refused, [], mode);
         }
@@ -440,6 +440,76 @@ const tests = {
         assert.strictEqual(strings.SID_EVA_HUD_REPO_CREDITS_TITLE, 'EVA HUD APP');
         assert.strictEqual(strings.SID_EVA_HUD_REPO_CREDITS_LINK, 'Free and open source by DukeAPenguin, based on Bimmer-Lab and idrive-apps');
     },
+    async 'the clock\'s colon breathes in Comfort: slowly, between dim and full, with one upload and no more'() {
+        const { a } = await everyday('COMFORT');
+        const hud = counts.evas[0], x = hud.widgets.get('colon');
+        assert.ok(x, 'no colon layer');
+        const client = a.hud(), set = client.set, sets = [];
+        client.set = function (ref, o) { if (ref === x.ref) sets.push(o); return set.call(this, ref, o); };
+        const writes = client.sent.filter((s) => s.ref === x.ref).length;
+        assert.strictEqual(writes, 1, 'its pixels go up once');
+        const seen = [];
+        for (let i = 0; i < 90; i++) { await wait(50); seen.push(client.layers.get(x.ref).opacity); }
+        assert.ok(Math.min.apply(null, seen) <= 0.35, 'not dim enough: ' + Math.min.apply(null, seen));
+        assert.ok(Math.max.apply(null, seen) >= 0.95, 'not full: ' + Math.max.apply(null, seen));
+        assert.ok(Math.min.apply(null, seen) >= 0.25, 'gone too far: ' + Math.min.apply(null, seen));
+        assert.ok(new Set(seen).size >= 8, 'it jumps: ' + Array.from(new Set(seen)).join(' '));
+        for (let i = 1; i < seen.length; i++) assert.ok(Math.abs(seen[i] - seen[i - 1]) <= 0.15, 'a jump: ' + seen[i - 1] + ' to ' + seen[i]);
+        assert.ok(sets.every((o) => Object.keys(o).join() === 'opacity'), 'only its opacity changes');
+        assert.ok(sets.length < 15 * 4.5, sets.length + ' sets in 4.5 s');
+        assert.strictEqual(client.sent.filter((s) => s.ref === x.ref).length, 1, 'breathing sent pixels');
+    },
+    async 'the clock looks as it did: hours, colon and minutes land where one string would'() {
+        const { a } = await everyday('COMFORT');
+        const hud = counts.evas[0], text = require(path.join(STAGE, 'source/javascript/hud_text.js'));
+        hud._now = () => ({ getHours: () => 12, getMinutes: () => 34 });
+        await wait(300);
+        const c = hud.widgets.get('text'), colon = hud.widgets.get('colon');
+        const hh = c.w.parts.find((p) => p.id === 'hh'), mm = c.w.parts.find((p) => p.id === 'mm');
+        const W = 260, H = hh.h, full = text.drawText(W, H, '12:34', { font: hh.font, color: [255, 255, 255, 255], glow: hud.theme.glow, x: hh.textX, offsetY: hh.offsetY });
+        const image = imageOf(a.hud(), c.ref), dots = imageOf(a.hud(), colon.ref);
+        const lit = (ax, ay) => {   // on the glass, relative to the hours' part
+            const inCanvas = (p) => ax >= p.x && ax < p.x + p.w;
+            const y = hh.y + ay;
+            const canvasOn = (inCanvas(hh) || inCanvas(mm)) && image[(y * c.w.w + ax) * 4 + 3] > 200;
+            const cx = c.w.x + ax - colon.w.x, cy = c.w.y + y - colon.w.y;
+            const colonOn = cx >= 0 && cx < colon.w.w && cy >= 0 && cy < colon.w.h && dots[(cy * colon.w.w + cx) * 4 + 3] > 200;
+            return canvasOn || colonOn;
+        };
+        let wrong = 0, ink = 0;
+        for (let y = 0; y < H; y++) {
+            for (let x = hh.x; x < mm.x + mm.w; x++) {
+                const want = full[(y * W + x - hh.x) * 4 + 3] > 200;
+                if (want) ink++;
+                if (want !== lit(x, y)) wrong++;
+            }
+        }
+        assert.ok(ink > 3000, ink + ' lit pixels');
+        assert.ok(wrong < ink * 0.01, wrong + ' of ' + ink + ' pixels differ');
+    },
+    async 'the colon hides with the rest for an alert and a pop-up, and is the only part of the clock that breathes'() {
+        const { a, data } = await everyday('COMFORT');
+        const hud = counts.evas[0], ref = hud.widgets.get('colon').ref;
+        data.speed = 0;
+        a.set('alertPreview', 'heat');
+        await wait(250);
+        assert.strictEqual(a.hud().layers.get(ref).visible, 0, 'under the alert');
+        a.set('alertPreview', 'off');
+        await wait(250);
+        assert.strictEqual(a.hud().layers.get(ref).visible, 1, 'after the alert');
+        popup('322', true);
+        await wait(250);
+        assert.strictEqual(a.hud().layers.get(ref).visible, 0, 'under the pop-up');
+        popup('322', false);
+        await wait(1800);
+        assert.strictEqual(a.hud().layers.get(ref).visible, 1, 'after the pop-up');
+    },
+    async 'Eco Pro and Sport keep their one-piece clock, with no colon layer'() {
+        for (const mode of ['ECO_PRO', 'SPORT']) {
+            await everyday(mode);
+            assert.ok(!counts.evas[0].widgets.has('colon'), mode);
+        }
+    },
     async 'the big word is hidden, not just see-through, whenever it is gone: a layer at opacity 0 is still drawn'() {
         const { a, data } = await everyday('COMFORT');
         assert.strictEqual(wordLayer(a).visible, 0, 'from the start, while driving');
@@ -567,56 +637,77 @@ const tests = {
         assert.strictEqual(wordLayer(a).visible, 1);
         assert.strictEqual(wordLayer(a).opacity, 1);
     },
-    async 'a tyre well under its target turns amber'() {
-        const a = startApp({ screens: 'hud', demo: 'off' });
-        await wait(100);
-        const hud = counts.evas[0];
-        a.hu.feed(TPMS, 'statusTargetTyrePressure', { targetPressureTyreFLH: 26, targetPressureTyreFRH: 26, targetPressureTyreRLH: 65532, targetPressureTyreRRH: 28 });
-        a.hu.feed(TPMS, 'statusTyrePressure', { actualValuePressureTyreFLH: 23, actualValuePressureTyreFRH: 24, actualValuePressureTyreRLH: 21, actualValuePressureTyreRRH: 65532 });
-        await wait(50);
-        assert.strictEqual(hud._warn('tyreLow:FL'), true, '0.3 bar under its target is low');
-        assert.strictEqual(hud._warn('tyreLow:FR'), false, '0.2 bar under is not');
-        assert.strictEqual(hud._warn('tyreLow:RL'), false, 'no target: 2.0 bar is the line, and 2.1 is above it');
-        assert.strictEqual(hud._warn('tyreLow:RR'), false, 'no reading is not low');
-        a.hu.feed(TPMS, 'statusTyrePressure', { actualValuePressureTyreRLH: 19 });
-        await wait(50);
-        assert.strictEqual(hud._warn('tyreLow:RL'), true, 'no target, under 2.0 bar');
-    },
-    async 'an old target is no target'() {
-        const a = startApp({ screens: 'hud', demo: 'off' });
-        await wait(100);
-        const hud = counts.evas[0];
-        a.hu.feed(TPMS, 'statusTargetTyrePressure', { targetPressureTyreFLH: 30 });
-        a.hu.feed(TPMS, 'statusTyrePressure', { actualValuePressureTyreFLH: 25 });
-        await wait(50);
-        assert.strictEqual(hud._warn('tyreLow:FL'), true);
-        hud.tyres.FL.targetAt -= 120000;
-        assert.strictEqual(hud._warn('tyreLow:FL'), false, '2.5 bar is fine with no target to compare');
-    },
-    async 'a low tyre\'s name, pressure and temperature go up in amber, each write inside its own part'() {
-        const a = startApp({ screens: 'hud', demo: 'off' });
-        await wait(150);
-        drive(a, 'COMFORT');
-        await wait(SETTLE_MS);
-        a.hu.feed(TPMS, 'statusTyrePressure', { actualValuePressureTyreFLH: 15 });
-        a.hu.feed(TPMS, 'statusTyreTemperature', { actualValueTemperatureTyreFLH: 65 });
-        await wait(400);
+    async 'Comfort has NERV\'s motto where the tyres were, drawn once'() {
+        const { a } = await everyday('COMFORT');
         const x = counts.evas[0].widgets.get('text'), W = x.w.w, image = imageOf(a.hud(), x.ref);
-        for (const id of ['tn_fl', 'tp_fl', 'tt_fl']) {
+        for (const id of ['motto1', 'motto2']) {
             const p = x.w.parts.find((q) => q.id === id);
-            let amber = 0;
+            let ink = 0;
             for (let j = p.y; j < p.y + p.h; j++) {
-                for (let i = p.x; i < p.x + p.w; i++) {
-                    const o = (j * W + i) * 4;
-                    if (image[o + 3] > 200 && image[o] === 255 && image[o + 1] === 176 && image[o + 2] === 0) amber++;
-                }
+                for (let i = p.x; i < p.x + p.w; i++) if (image[(j * W + i) * 4 + 3] > 200) ink++;
             }
-            assert.ok(amber > 0, id + ' is not amber');
+            assert.ok(ink > 200, id + ' has ' + ink + ' lit pixels');
         }
-        a.hud().sent.filter((s) => s.ref === x.ref && s.rects).forEach((s) => {
+        const later = a.hud().sent.length;
+        await wait(400);
+        const row = x.w.parts.find((q) => q.id === 'motto1');
+        a.hud().sent.slice(later).filter((s) => s.ref === x.ref && s.rects).forEach((s) => {
             const r = s.rects[0];
-            assert.ok(x.w.parts.some((p) => r.x >= p.x && r.y >= p.y && r.x + r.w <= p.x + p.w && r.y + r.h <= p.y + p.h), JSON.stringify(r) + ' crosses a part');
+            assert.ok(r.y + r.h <= row.y || r.y >= row.y + row.h, 'the motto was written again');
         });
+    },
+    async 'the menu offers six lines for Comfort, NERV\'s motto first, and each can be drawn and fits'() {
+        const spec = JSON.parse(fs.readFileSync(path.join(ROOT, 'apps/eva_hud/app.json'), 'utf8')).settings.find((x) => x.key === 'motto');
+        assert.ok(spec, 'no menu item');
+        assert.strictEqual(spec.type, 'choice');
+        assert.strictEqual(spec.options.length, 6);
+        assert.strictEqual(spec.default, spec.options[0][0]);
+        const f = JSON.parse(fs.readFileSync(path.join(ROOT, 'apps/eva_hud/hud/fonts/motto.json'), 'utf8'));
+        const seen = new Set();
+        for (const [key] of spec.options) {
+            await everyday('COMFORT', { motto: key });
+            const hud = counts.evas[0], parts = hud.widgets.get('text').w.parts;
+            ['motto1', 'motto2'].forEach((id) => {
+                const line = hud._token(id), part = parts.find((q) => q.id === id);
+                assert.ok(line, key + ' has no ' + id);
+                let w = 0;
+                Array.from(line).forEach((ch) => { assert.ok(f.glyphs[ch], key + ': no glyph for ' + ch); w += f.glyphs[ch].advance; });
+                assert.ok(w <= part.w, key + ': ' + line + ' is ' + w + ' wide in ' + part.w);
+            });
+            seen.add(hud._token('motto1') + '/' + hud._token('motto2'));
+        }
+        assert.strictEqual(seen.size, 6, 'two choices show the same thing');
+    },
+    async 'with nothing chosen, or a choice this version does not know, Comfort shows NERV\'s motto'() {
+        for (const settings of [{}, { motto: 'gone' }]) {
+            await everyday('COMFORT', settings);
+            const hud = counts.evas[0];
+            assert.strictEqual(hud._token('motto1'), '神ハ天ニ在リ', JSON.stringify(settings));
+            assert.strictEqual(hud._token('motto2'), '世ハ全テ事モ無シ', JSON.stringify(settings));
+        }
+    },
+    async 'changing the line redraws only its two rows, without making the layers again'() {
+        const { a } = await everyday('COMFORT');
+        const hud = counts.evas[0], x = hud.widgets.get('text'), ref = x.ref, colon = hud.widgets.get('colon').ref;
+        await wait(300);
+        const rows = ['motto1', 'motto2'].map((id) => x.w.parts.find((q) => q.id === id));
+        const ink = () => { const im = imageOf(a.hud(), ref); return rows.map((p) => { const out = []; for (let j = p.y; j < p.y + p.h; j++) out.push(im.slice((j * x.w.w + p.x) * 4, (j * x.w.w + p.x + p.w) * 4).toString('hex')); return out.join(''); }); };
+        const was = ink(), before = a.hud().sent.length;
+        a.set('motto', 'run');
+        await wait(700);
+        assert.strictEqual(hud.widgets.get('text').ref, ref, 'the layers were made again');
+        assert.strictEqual(hud.widgets.get('colon').ref, colon);
+        assert.strictEqual(hud._token('motto1'), '逃ゲチャダメダ');
+        const now = ink();
+        assert.notStrictEqual(now[0], was[0], 'the first row is still the old line');
+        assert.notStrictEqual(now[1], was[1], 'the second row is still the old line');
+        const writes = a.hud().sent.slice(before).filter((w) => w.ref === ref);
+        assert.ok(writes.length >= 2, writes.length + ' writes');
+        const inRow = writes.filter((w) => w.rects && rows.some((p) => { const r = w.rects[0]; return r.x >= p.x && r.y >= p.y && r.x + r.w <= p.x + p.w && r.y + r.h <= p.y + p.h; }));
+        assert.strictEqual(inRow.length, 2, 'each row once');
+        const after = a.hud().sent.length;
+        await wait(400);
+        assert.ok(!a.hud().sent.slice(after).some((w) => w.ref === ref && w.rects && rows.some((p) => { const r = w.rects[0]; return r.y < p.y + p.h && p.y < r.y + r.h; })), 'the line is written again and again');
     },
     async 'the fuel use is litres per hour over the speed, as L/100km'() {
         const { a, data } = await everyday('ECO_PRO');
@@ -692,80 +783,75 @@ const tests = {
         await wait(50);
         assert.strictEqual(hud._token('range'), '--', '4095 means no value');
     },
-    async 'a parked car that says nothing new keeps its range and tyres: they are read, not notified'() {
+    async 'a parked car that says nothing new keeps its range: it is read, not notified'() {
         const a = startApp({ screens: 'hud', demo: 'off' });
         await wait(100);
         const hud = counts.evas[0];
         a.hu.feed('de.bmw.infotainment.KombiIF', 'statusRangeTankStatus', { range: 300 });
-        a.hu.feed(TPMS, 'statusTyrePressure', { actualValuePressureTyreFLH: 23 });
         await wait(50);
         hud.car.lastCar = Date.now() - 600000;      // the engine signals have been quiet for ten minutes
         assert.strictEqual(hud._token('range'), '300');
-        assert.strictEqual(hud._token('tyreP:FL'), '33');
     },
-    async 'range and tyres go to dashes only when the reads have stopped'() {
+    async 'the range goes to dashes only when the reads have stopped'() {
         const a = startApp({ screens: 'hud', demo: 'off' });
         await wait(100);
         const hud = counts.evas[0];
         a.hu.feed('de.bmw.infotainment.KombiIF', 'statusRangeTankStatus', { range: 300 });
-        a.hu.feed(TPMS, 'statusTyrePressure', { actualValuePressureTyreFLH: 23 });
         await wait(50);
         hud.rangeAt -= 120000;
-        hud.tyres.FL.pAt -= 120000;
         assert.strictEqual(hud._token('range'), '--');
-        assert.strictEqual(hud._token('tyreP:FL'), '--');
     },
-    async 'range and tyres are read every 10 s, without being asked for by a screen'() {
+    async 'the range is read every 10 s without being asked for by a screen, and the tyres are not read at all'() {
         const a = startApp({ screens: 'off', demo: 'off' });
         await wait(100);
         const polled = a.watches.filter((w) => w.opts && w.opts.pollMs === 10000);
         const has = (iface, field) => polled.some((w) => w.iface === iface && w.fields.indexOf(field) >= 0);
-        assert.ok(has(TPMS, 'statusTyrePressure'), 'pressure');
-        assert.ok(has(TPMS, 'statusTyreTemperature'), 'temperature');
-        assert.ok(has(TPMS, 'statusTargetTyrePressure'), 'target pressure');
         assert.ok(has('de.bmw.infotainment.KombiIF', 'statusRangeTankStatus'), 'range');
+        assert.ok(!a.watches.some((w) => w.iface === TPMS), 'the tyres are still read');
     },
-    async 'tyre pressure is in PSI, from 0.1 bar steps, and nonsense is dashes'() {
-        const a = startApp({ screens: 'hud', demo: 'off' });
-        await wait(100);
-        const hud = counts.evas[0];
-        assert.strictEqual(hud._token('tyreP:RR'), '--');
-        a.hu.feed(TPMS, 'statusTyrePressure', { actualValuePressureTyreFLH: 23, actualValuePressureTyreFRH: 24, actualValuePressureTyreRLH: 65532, actualValuePressureTyreRRH: 65535 });
+    async 'the clock follows the GMT offset in the menu, whatever zone the head unit is in'() {
+        const pad = (n) => String(n).padStart(2, '0');
+        const at = (hours) => { const d = new Date(Date.now() + hours * 3600000); return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()); };
+        for (const off of [8, 14, -12, 0, -5]) {
+            const a = startApp({ screens: 'hud', demo: 'off', gmtOffset: String(off) });
+            await wait(50);
+            const hud = counts.evas[0], want = at(off), got = hud._token('time');
+            assert.ok(got === want || got === at(off), off + ': ' + got + ' not ' + want);   // the minute may turn over
+            assert.strictEqual(got.split(':')[0], hud._token('hh'));
+            assert.strictEqual(a.hud().refused.length, 0);
+        }
+    },
+    async 'a new install is on GMT-5, and the head unit\'s own clock is still a choice'() {
+        const pad = (n) => String(n).padStart(2, '0');
+        let a = startApp({ screens: 'hud', demo: 'off' });
         await wait(50);
-        assert.strictEqual(hud._token('tyreP:FL'), '33');
-        assert.strictEqual(hud._token('tyreP:FR'), '35');
-        assert.strictEqual(hud._token('tyreP:RL'), '--', '65532 and up means no value');
-        assert.strictEqual(hud._token('tyreP:RR'), '--');
-    },
-    async 'tyre temperature is in °C, 40 below the raw number, and nonsense is dashes'() {
-        const a = startApp({ screens: 'hud', demo: 'off' });
-        await wait(100);
-        const hud = counts.evas[0];
-        assert.strictEqual(hud._token('tyreT:FL'), '--');
-        a.hu.feed(TPMS, 'statusTyreTemperature', { actualValueTemperatureTyreFLH: 65, actualValueTemperatureTyreFRH: 0, actualValueTemperatureTyreRLH: 65535, actualValueTemperatureTyreRRH: 200 });
+        let d = new Date(Date.now() - 5 * 3600000);
+        assert.strictEqual(counts.evas[0]._token('hh'), pad(d.getUTCHours()));
+        assert.strictEqual(counts.evas[0].setting('gmtOffset'), '-5');
+        a = startApp({ screens: 'hud', demo: 'off', gmtOffset: 'unit' });
         await wait(50);
-        assert.strictEqual(hud._token('tyreT:FL'), '25°');
-        assert.strictEqual(hud._token('tyreT:FR'), '-40°');
-        assert.strictEqual(hud._token('tyreT:RL'), '--', '65535 means no value');
-        assert.strictEqual(hud._token('tyreT:RR'), '--', '160 °C is not a tyre');
+        d = new Date();
+        assert.strictEqual(counts.evas[0]._token('hh'), pad(d.getHours()));
+        const spec = JSON.parse(fs.readFileSync(path.join(ROOT, 'apps/eva_hud/app.json'), 'utf8')).settings.find((x) => x.key === 'gmtOffset');
+        assert.strictEqual(spec.options.length, 28, 'the head unit, and GMT-12 to GMT+14');
+        assert.deepStrictEqual(spec.options[1], ['-12', 'GMT-12']);
+        assert.deepStrictEqual(spec.options[27], ['14', 'GMT+14']);
+        assert.deepStrictEqual(spec.options[13], ['0', 'GMT+0']);
     },
-    async 'wire numbers that arrive as names or nothing do not break the tyres'() {
-        const a = startApp({ screens: 'hud', demo: 'off' });
-        await wait(100);
-        const hud = counts.evas[0];
-        a.hu.feed(TPMS, 'statusTyrePressure', null);
-        a.hu.feed(TPMS, 'statusTyreTemperature', {});
-        await wait(50);
-        assert.strictEqual(hud._token('tyreP:FL'), '--');
-        assert.strictEqual(hud._token('tyreT:FL'), '--');
-        assert.ok(!a.lines.some((l) => /^ERROR/.test(l)), a.lines.join(' | ').slice(0, 200));
-    },
-    async 'the demo shows made-up tyres only under the demo setting'() {
-        const a = startApp({ screens: 'hud', demo: 'on' });
-        await wait(100);
-        const hud = counts.evas[0];
-        assert.ok(/^\d\d$/.test(hud._token('tyreP:FL')), hud._token('tyreP:FL'));
-        assert.ok(/^\d\d°$/.test(hud._token('tyreT:RR')), hud._token('tyreT:RR'));
+    async 'changing the GMT offset moves the clock without redrawing the layers'() {
+        const { a } = await everyday('COMFORT');
+        const hud = counts.evas[0], ref = hud.widgets.get('text').ref, colon = hud.widgets.get('colon').ref;
+        await wait(300);
+        const before = a.hud().sent.length;
+        const other = hud._token('hh') === '00' ? '6' : '9';
+        a.set('gmtOffset', other);
+        await wait(700);
+        assert.strictEqual(hud.widgets.get('text').ref, ref, 'the layers were made again');
+        assert.strictEqual(hud.widgets.get('colon').ref, colon);
+        const pad = (n) => String(n).padStart(2, '0');
+        assert.strictEqual(hud._token('hh'), pad(new Date(Date.now() + Number(other) * 3600000).getUTCHours()));
+        const writes = a.hud().sent.slice(before).filter((w) => w.ref === ref);
+        assert.ok(writes.length >= 1 && writes.length <= 3, writes.length + ' writes');
     },
     async 'the clock is 24-hour'() {
         const a = startApp({ screens: 'hud' });
@@ -775,6 +861,8 @@ const tests = {
         assert.strictEqual(hud._token('time'), '15:07');
         hud._now = () => ({ getHours: () => 3, getMinutes: () => 14 });
         assert.strictEqual(hud._token('time'), '03:14');
+        assert.strictEqual(hud._token('hh'), '03');
+        assert.strictEqual(hud._token('mm'), '14');
         assert.ok(a);
     },
     async 'an alert in Comfort is still the full red one, and Comfort comes back after it'() {

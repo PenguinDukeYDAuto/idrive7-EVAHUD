@@ -20,8 +20,8 @@ Fonts are not in this repository. hud/fonts/ is generated on the builder's machi
 - MatissePro EB, a commercial typeface, from the builder's own licensed copy.
 A build of this app holds glyphs of both, so do not publish hud/fonts/ or a built .mgu.
 
-hud/logos/ and tools/assets/nerv_mask.png hold the NERV mark from Neon Genesis Evangelion (khara), from an image the
-owner supplied. The mark is not covered by this repository's MIT licence.
+hud/logos/, icon.png and tools/assets/nerv_mask.png hold the NERV mark from Neon Genesis Evangelion (khara), from images
+the owner supplied. The mark is not covered by this repository's MIT licence.
 
 ----------------------------------------------------------------------------------------------
 MGU App Kit licence (cauliflowermossgrape/idrive7-apps LICENSE)

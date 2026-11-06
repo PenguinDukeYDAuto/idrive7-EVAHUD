@@ -11,7 +11,7 @@
 - **三种模式：** HUD only、Dash only、HUD + Dash，在中控屏菜单里选。每种模式有自己的布局和内存方案。
 - **HUD only 跟随驾驶模式换版面：**
   - Sport：战斗风格，巨大挡位和转速条。
-  - Comfort：时间、续航、胎压和胎温。
+  - Comfort：时间、续航和一句中二文字（菜单里六选一）。
   - Eco Pro：续航、时间和油耗。
 - **挡位大字：** Comfort 和 Eco Pro 挂进 P、R、N 时显示 `出撃待命`、`緊急撤退`、`同期解除`，开起来就消失。
 - **全屏警报：** 爆震、燃油压力、空燃比、水温、增压。
@@ -20,7 +20,7 @@
 
 更多内容见 [apps/eva_hud/README.md](apps/eva_hud/README.md)、[设计文档](docs/superpowers/specs/2026-11-05-eva-hud-design.md) 和[性能研究](docs/superpowers/2026-11-05-eva-hud-performance.md)。
 
-**当前状态：** 车上实测过的是 0.2.1。当前代码是 0.3.1，只在模拟器里验证过，还没有装车。
+**当前状态：** 车上跑的是较早的 0.3.1，显示正常。之后的时区设置和 Comfort 改动（文字加大、菜单选文字、去掉胎压）只在模拟器里验证过，还没有装车。
 
 ## 开发自哪些项目
 
@@ -42,7 +42,7 @@
 |---|---|
 | bimmer-lab/apps | `44a50c5`。上游之后又加了 4 个主题提交，没有合并 |
 | MGU App Kit | 随 bimmer-lab/apps `44a50c5` 带来 |
-| cluster-render | `cluster-render@0.3.10`（`bbcbe42`）。这是测试过的版本 |
+| cluster-render | `cluster-render@0.3.10`（`bbcbe42`）。`0.4.0` 也在车上跑过，显示正常，弹窗让路还没验证 |
 
 这个仓库是一次全新的提交，**没有带上游的 git 历史**，因为上游历史里有字体文件。
 
@@ -113,7 +113,7 @@ for t in flicker layout popups alerts canvas diag dash; do node bench/test/eva_$
 |---|---|
 | `kit/` | MIT，版权归原作者，见 [kit/LICENSE](kit/LICENSE) |
 | `shared/cluster_render_client.js` | MPL-2.0，版权归 Robert Nisipeanu |
-| `apps/eva_hud/hud/logos/`、`tools/assets/nerv_mask.png` 里的 NERV 标志 | 不在 MIT 授权范围内，相关权利归权利人所有 |
+| `apps/eva_hud/hud/logos/`、`tools/assets/nerv_mask.png`、`apps/eva_hud/icon.png` 里的 NERV 标志 | 不在 MIT 授权范围内，相关权利归权利人所有 |
 
 第三方说明见 [apps/eva_hud/NOTICE](apps/eva_hud/NOTICE)。
 

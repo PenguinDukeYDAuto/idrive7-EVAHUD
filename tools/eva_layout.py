@@ -68,7 +68,18 @@ LABELS = ('SPEED  速度', 'BOOST  増圧', 'OIL  油温', 'WATER  水温', 'TOR
           'PEDAL  油門')
 # the everyday layouts: the big word for P, R and N with the line over it (shared/eva_hud.js has the same), and their labels
 WORDS = {'P': ('出撃待命', 'SORTIE STANDBY // 拘束具固定'), 'R': ('緊急撤退', 'RETREAT // 総員退避'), 'N': ('同期解除', 'SYNCHRO CUT // 駆動系切離')}
-EVERYDAY = ('第3新東京市', '節電', '活動限界', '燃料消費', '左前', '右前', '左後', '右後')
+EVERYDAY = ('節電', '活動限界', '燃料消費')
+PLACE = '第3新東京市'
+# Comfort's lower right, picked in the menu (app.json's motto): same strings as shared/eva_hud.js. The first is NERV's motto,
+# which the mark on the glass has cut out.
+MOTTOS = {
+    'heaven': ('神ハ天ニ在リ', '世ハ全テ事モ無シ'),
+    'project': ('人類補完計画', '第3段階 進行中'),
+    'angel': ('使徒反応無シ', 'パターン青 未検出'),
+    'magi': ('MAGI 全会一致', '本日モ異常無シ'),
+    'field': ('A.T.フィールド', '全周展開中'),
+    'run': ('逃ゲチャダメダ', '逃ゲチャダメダ'),
+}
 
 
 def chars(*parts):
@@ -166,9 +177,10 @@ def build_hud(fonts_dir, refuse, area, zone):
         # the everyday layouts, at the sizes the design has them on the glass
         ('word', MATISSE, 76, chars(*[s for s, _ in WORDS.values()])),
         ('small', MATISSE, MIN_FONT, chars(*EVERYDAY, *[sub for _, sub in WORDS.values()])),
+        ('place', MATISSE, 28, chars(PLACE)),
+        ('motto', MATISSE, 28, chars(*[line for m in MOTTOS.values() for line in m])),
         ('time70', MATISSE, 70, DIGITS + ':-'),
         ('num20', SEMI, 20, DIGITS + '- KM'),
-        ('num21', BOLD, 21, DIGITS + '-'),
         ('num24', SEMI, 24, DIGITS + ':-'),
         ('num36', BOLD, 36, DIGITS + '.-'),
         ('num72', BOLD, 72, DIGITS + '-'),
@@ -300,27 +312,33 @@ def build_hud(fonts_dir, refuse, area, zone):
         mark_w = 44
         with Image.open(LOGO_MASK) as m:
             mark_h = round(mark_w * m.height / m.width)
-        return [{'id': 'logo', 'type': 'logo', 'src': 'logos/nerv_small.json', 'color': 'dim', 'x': word_right - mark_w, 'y': y + 8, 'w': mark_w, 'h': mark_h},
+        return [{'id': 'logo', 'type': 'logo', 'src': 'logos/nerv_small.json', 'color': 'dim', 'x': word_right - mark_w - 16, 'y': y + 22, 'w': mark_w, 'h': mark_h},
                 at('wordsub', '{{wordsub}}', 'small', word_base - round(word_px * word_sy * 0.9) - 5, right=word_right, width=300, color='soft', warnWhen='reverse')]
 
-    # Comfort, the one used most: the time, the range and the tyres
+    # Comfort, the one used most: the time, the range and the line from the menu. The time's colon breathes, so it has a layer of its
+    # own and the digits go either side of it. This font's digits are all one width, so it never moves.
     pad = 4
+    hours_w, colon_w = width('00', 'time70'), width(':', 'time70')
+    clock_left = left - 2
+    colon_pad = 8
+    hh = at('hh', '{{hh}}', 'time70', y + 106, left=clock_left, width=hours_w + colon_pad, pad=pad)
+    mm_pen = clock_left + hours_w + colon_w
+    mm = at('mm', '{{mm}}', 'time70', y + 106, left=mm_pen, width=hours_w, pad=colon_pad)
+    colon = {'id': 'colon', 'type': 'evacolon', 'x': clock_left + hours_w - colon_pad, 'y': hh['y'], 'w': colon_w + 2 * colon_pad, 'h': hh['h'], 'font': 'time70',
+             'pad': colon_pad, 'offsetY': hh['offsetY'], 'class': 'overlay', 'z': 11}
     ps = everyday() + [
-        at('place', '第3新東京市', 'small', y + 36, left=left, width=100, color='dim'),
-        at('time', '{{time}}', 'time70', y + 106, left=left - 2, width=width('00:00', 'time70') + 4, pad=pad),
+        at('place', PLACE, 'place', y + 36, left=left, width=width(PLACE, 'place'), color='soft'),
+        hh,
+        mm,
         at('range', '{{range}} KM', 'num20', y + 142, left=left, width=120, color='soft'),
     ]
-    for i, (corner, name) in enumerate((('fl', '左前'), ('fr', '右前'), ('rl', '左後'), ('rr', '右後'))):
-        cx, cy = low_x + (i % 2) * 150, y + 246 + (i // 2) * 25
-        warn = 'tyreLow:' + corner.upper()
-        ps.append(at('tn_' + corner, name, 'small', cy, left=cx, width=28, color='dim', warnWhen=warn))
-        ps.append(at('tp_' + corner, '{{tyreP:%s}}' % corner.upper(), 'num21', cy + 1, left=cx + 30, width=25, warnWhen=warn))
-        ps.append(at('tt_' + corner, '{{tyreT:%s}}' % corner.upper(), 'unit', cy, left=cx + 56, width=44, color='dim', warnWhen=warn))
+    for i in range(2):
+        ps.append(at('motto%d' % (i + 1), '{{motto%d}}' % (i + 1), 'motto', y + 241 + i * 31, left=low_x, width=max(width(m[i], 'motto') for m in MOTTOS.values()), color='soft'))
     if clashes(ps):
         refuse('Comfort: parts overlap: %r' % clashes(ps))
-    comfort = {'schemaVersion': 2, 'name': 'HUD Only - COMFORT', 'theme': 'eva_calm', '_about': about, 'widgets': [corners(), word(), canvas('text', ps, 'overlay', 10)]}
+    comfort = {'schemaVersion': 2, 'name': 'HUD Only - COMFORT', 'theme': 'eva_calm', '_about': about, 'widgets': [corners(), word(), canvas('text', ps, 'overlay', 10), colon]}
 
-    # Eco Pro: the range first, and the fuel use where Comfort has the tyres
+    # Eco Pro: the range first, and the fuel use where Comfort has its line
     range_w = max(width(d * 3, 'num72') for d in DIGITS)
     ps = everyday() + [
         at('save', '節電', 'small', y + 29, left=left, width=60, color='soft'),
@@ -587,7 +605,7 @@ def main(x, y, w, h):
                 small = m.convert('L').resize((logo['w'], logo['h']), Image.LANCZOS)
             with open(os.path.join(APP, logo['src']), 'w', encoding='utf8') as f:
                 json.dump({'w': logo['w'], 'h': logo['h'], 'alpha': base64.b64encode(small.tobytes()).decode('ascii')}, f)
-    for gone in ('fonts/speed.json', 'fonts/song.json', 'fonts/clock.json', 'fonts/c_gear.json', 'logos/car_top.json'):      # nothing draws these any more
+    for gone in ('fonts/speed.json', 'fonts/song.json', 'fonts/clock.json', 'fonts/c_gear.json', 'fonts/num21.json', 'logos/car_top.json'):      # nothing draws these any more
         stale = os.path.join(APP, gone)
         if os.path.exists(stale):
             os.remove(stale)

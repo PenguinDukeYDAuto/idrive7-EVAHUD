@@ -31,6 +31,7 @@ const TYPES = {
     evasolo: ['bar'],
     evacorners: ['lowerLeft'],
     evaword: ['font'],
+    evacolon: ['font'],
 };
 const CLASSES = ['ambient', 'content', 'overlay', 'alert'];
 
