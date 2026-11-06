@@ -1,5 +1,7 @@
 # idrive7-EVAHUD
 
+**中文** | [English](README.en.md)
+
 把 BMW iDrive 7（MGU）的挡风玻璃 HUD 和仪表盘画成《新世纪福音战士》NERV 作战界面的 app。
 
 作者：DukeAPenguin。这是非官方的个人项目，和 BMW、khara 以及下面列出的上游作者都没有关系。改装车机的风险由你自己承担。
@@ -133,11 +135,3 @@ for t in flicker layout popups alerts canvas diag dash; do node bench/test/eva_$
 | `docs/screenshots/` 里显示的文字字形（MatissePro、Barlow） | 不在 MIT 授权范围内，权利归各字体的权利人所有。截图只是图片，不含字体文件 |
 
 第三方说明见 [apps/eva_hud/NOTICE](apps/eva_hud/NOTICE)。
-
-## English summary
-
-An unofficial NERV-style display for the windshield HUD and instrument cluster of BMW iDrive 7 (MGU) cars, by DukeAPenguin.
-
-- **Upstream:** built on [bimmer-lab/apps](https://github.com/bimmer-lab/apps) (bimmer-lab, MIT), [cauliflowermossgrape/idrive7-apps](https://github.com/cauliflowermossgrape/idrive7-apps) (MGU App Kit, MIT) and [robertnisipeanu/idrive-apps](https://github.com/robertnisipeanu/idrive-apps) (cluster-render, installed separately).
-- **Not included:** fonts, built packages and BMW's `oap-sdk`. You must supply the fonts yourself to build it; see 字体 above.
-- **Licence:** MIT, except the parts listed in the table above.
