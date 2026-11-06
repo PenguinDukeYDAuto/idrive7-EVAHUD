@@ -19,9 +19,11 @@ Fonts are not in this repository. hud/fonts/ is generated on the builder's machi
 - Barlow (SIL Open Font License 1.1, https://github.com/jpt/barlow).
 - MatissePro EB, a commercial typeface, from the builder's own licensed copy.
 A build of this app holds glyphs of both, so do not publish hud/fonts/ or a built .mgu.
+The images in docs/screenshots/ show text drawn in these fonts. They hold no font files, and the MIT licence does not
+cover the letterforms they show.
 
-hud/logos/, icon.png and tools/assets/nerv_mask.png hold the NERV mark from Neon Genesis Evangelion (khara), from images
-the owner supplied. The mark is not covered by this repository's MIT licence.
+hud/logos/, icon.png, tools/assets/nerv_mask.png and the images in docs/screenshots/ hold the NERV mark from Neon Genesis
+Evangelion (khara), from images the owner supplied. The mark is not covered by this repository's MIT licence.
 
 ----------------------------------------------------------------------------------------------
 MGU App Kit licence (cauliflowermossgrape/idrive7-apps LICENSE)

@@ -6,6 +6,21 @@
 
 > **本仓库不包含任何字体**，也不包含构建好的 `.mgu` 和 BMW 的 `oap-sdk`。没有字体就无法构建，做法见[字体](#字体)。NERV 标志包含在仓库里。
 
+## 截图
+
+| Sport | 全屏警报（菜单预览） |
+|:---:|:---:|
+| ![Sport：巨大挡位和转速条](docs/screenshots/sport.png) | ![全屏警报：非常事態](docs/screenshots/alert.png) |
+| **Comfort** | **Eco Pro** |
+| ![Comfort：时间、续航和一句中二文字](docs/screenshots/comfort.png) | ![Eco Pro：续航、时间和油耗](docs/screenshots/eco.png) |
+| **Comfort 挂 P** | **Comfort 挂 R** |
+| ![挂 P 时显示出撃待命](docs/screenshots/comfort-p.png) | ![挂 R 时显示緊急撤退](docs/screenshots/comfort-r.png) |
+
+以上都是模拟器截图，数值是演示数据，真实玻璃上的亮度和颜色会不同。
+
+- 左下角的白色限速牌和 `120 km/h` 是模拟器画的 BMW 原厂内容，实车上去不掉，版面给它留了位置。
+- 挂 P 和 R 的两张用手动信号拍摄。模拟器在这种情况下没有续航数据，所以显示 `--`。
+
 ## 功能
 
 - **三种模式：** HUD only、Dash only、HUD + Dash，在中控屏菜单里选。每种模式有自己的布局和内存方案。
@@ -55,6 +70,7 @@
 - `tools/eva_layout.py` 和 `tools/assets/`
 - `bench/test/`
 - `docs/superpowers/`
+- `docs/screenshots/`
 
 修改：
 
@@ -113,7 +129,8 @@ for t in flicker layout popups alerts canvas diag dash; do node bench/test/eva_$
 |---|---|
 | `kit/` | MIT，版权归原作者，见 [kit/LICENSE](kit/LICENSE) |
 | `shared/cluster_render_client.js` | MPL-2.0，版权归 Robert Nisipeanu |
-| `apps/eva_hud/hud/logos/`、`tools/assets/nerv_mask.png`、`apps/eva_hud/icon.png` 里的 NERV 标志 | 不在 MIT 授权范围内，相关权利归权利人所有 |
+| `apps/eva_hud/hud/logos/`、`tools/assets/nerv_mask.png`、`apps/eva_hud/icon.png`、`docs/screenshots/` 里的 NERV 标志 | 不在 MIT 授权范围内，相关权利归权利人所有 |
+| `docs/screenshots/` 里显示的文字字形（MatissePro、Barlow） | 不在 MIT 授权范围内，权利归各字体的权利人所有。截图只是图片，不含字体文件 |
 
 第三方说明见 [apps/eva_hud/NOTICE](apps/eva_hud/NOTICE)。
 
