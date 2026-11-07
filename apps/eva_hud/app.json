@@ -2,7 +2,7 @@
   "id": "eva_hud",
   "title": "EVA",
   "description": "NERV battle display on the windshield HUD and the instrument cluster: giant gear, rev bar, speed and full-screen title-card alerts",
-  "version": "0.3.1",
+  "version": "0.5.3",
   "vendor": "custom",
   "loggingId": "OAEV",
   "iconGlyph": "EVA",
@@ -26,6 +26,8 @@
     "eva_popups.js",
     "eva_flicker.js",
     "eva_hud.js",
+    "eva_magi.js",
+    "eva_demo.js",
     "eva_dash.js"
   ],
   "signals": {
@@ -89,6 +91,110 @@
       "options": [["off", "Off (BMW's own)"], ["hud", "HUD only"], ["dash", "Dash only"], ["both", "HUD + Dash"], ["grid", "HUD calibration grid"]]
     },
     {
+      "key": "hudComfort",
+      "label": "Comfort HUD (HUD only)",
+      "type": "choice",
+      "default": "comfort",
+      "options": [["comfort", "Comfort"], ["sport", "Sport"], ["eco", "Eco Pro"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "hud"}]
+    },
+    {
+      "key": "hudSport",
+      "label": "Sport HUD (HUD only)",
+      "type": "choice",
+      "default": "sport",
+      "options": [["comfort", "Comfort"], ["sport", "Sport"], ["eco", "Eco Pro"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "hud"}]
+    },
+    {
+      "key": "hudEco",
+      "label": "Eco Pro HUD (HUD only)",
+      "type": "choice",
+      "default": "eco",
+      "options": [["comfort", "Comfort"], ["sport", "Sport"], ["eco", "Eco Pro"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "hud"}]
+    },
+    {
+      "key": "dashComfort",
+      "label": "Comfort dash (Dash only)",
+      "type": "choice",
+      "default": "whole",
+      "options": [["whole", "Original (whole cluster)"], ["a", "A: Command room"], ["b", "B: Active limit"], ["d", "D: Battle stations (whole cluster)"], ["c1", "C1: Big clock"], ["c2", "C2: Title card"], ["c3", "C3: Tokyo-3 (whole cluster)"], ["e1", "E1: Fuel use"], ["e2", "E2: Hex rings"], ["e3", "E3: Active limit (whole cluster)"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "dash"}]
+    },
+    {
+      "key": "dashSport",
+      "label": "Sport dash (Dash only)",
+      "type": "choice",
+      "default": "whole",
+      "options": [["whole", "Original (whole cluster)"], ["a", "A: Command room"], ["b", "B: Active limit"], ["d", "D: Battle stations (whole cluster)"], ["c1", "C1: Big clock"], ["c2", "C2: Title card"], ["c3", "C3: Tokyo-3 (whole cluster)"], ["e1", "E1: Fuel use"], ["e2", "E2: Hex rings"], ["e3", "E3: Active limit (whole cluster)"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "dash"}]
+    },
+    {
+      "key": "dashEco",
+      "label": "Eco Pro dash (Dash only)",
+      "type": "choice",
+      "default": "whole",
+      "options": [["whole", "Original (whole cluster)"], ["a", "A: Command room"], ["b", "B: Active limit"], ["d", "D: Battle stations (whole cluster)"], ["c1", "C1: Big clock"], ["c2", "C2: Title card"], ["c3", "C3: Tokyo-3 (whole cluster)"], ["e1", "E1: Fuel use"], ["e2", "E2: Hex rings"], ["e3", "E3: Active limit (whole cluster)"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "dash"}]
+    },
+    {
+      "key": "bothHudComfort",
+      "label": "Comfort HUD (HUD + Dash)",
+      "type": "choice",
+      "default": "eva",
+      "options": [["eva", "Battle display"], ["comfort", "Comfort"], ["sport", "Sport"], ["eco", "Eco Pro"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "both"}]
+    },
+    {
+      "key": "bothDashComfort",
+      "label": "Comfort dash (HUD + Dash)",
+      "type": "choice",
+      "default": "whole",
+      "options": [["whole", "Original (whole cluster)"], ["a", "A: Command room"], ["b", "B: Active limit"], ["d", "D: Battle stations (whole cluster)"], ["c1", "C1: Big clock"], ["c2", "C2: Title card"], ["c3", "C3: Tokyo-3 (whole cluster)"], ["e1", "E1: Fuel use"], ["e2", "E2: Hex rings"], ["e3", "E3: Active limit (whole cluster)"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "both"}]
+    },
+    {
+      "key": "bothHudSport",
+      "label": "Sport HUD (HUD + Dash)",
+      "type": "choice",
+      "default": "eva",
+      "options": [["eva", "Battle display"], ["comfort", "Comfort"], ["sport", "Sport"], ["eco", "Eco Pro"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "both"}]
+    },
+    {
+      "key": "bothDashSport",
+      "label": "Sport dash (HUD + Dash)",
+      "type": "choice",
+      "default": "whole",
+      "options": [["whole", "Original (whole cluster)"], ["a", "A: Command room"], ["b", "B: Active limit"], ["d", "D: Battle stations (whole cluster)"], ["c1", "C1: Big clock"], ["c2", "C2: Title card"], ["c3", "C3: Tokyo-3 (whole cluster)"], ["e1", "E1: Fuel use"], ["e2", "E2: Hex rings"], ["e3", "E3: Active limit (whole cluster)"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "both"}]
+    },
+    {
+      "key": "bothHudEco",
+      "label": "Eco Pro HUD (HUD + Dash)",
+      "type": "choice",
+      "default": "eva",
+      "options": [["eva", "Battle display"], ["comfort", "Comfort"], ["sport", "Sport"], ["eco", "Eco Pro"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "both"}]
+    },
+    {
+      "key": "bothDashEco",
+      "label": "Eco Pro dash (HUD + Dash)",
+      "type": "choice",
+      "default": "whole",
+      "options": [["whole", "Original (whole cluster)"], ["a", "A: Command room"], ["b", "B: Active limit"], ["d", "D: Battle stations (whole cluster)"], ["c1", "C1: Big clock"], ["c2", "C2: Title card"], ["c3", "C3: Tokyo-3 (whole cluster)"], ["e1", "E1: Fuel use"], ["e2", "E2: Hex rings"], ["e3", "E3: Active limit (whole cluster)"], ["off", "Off (BMW's own)"]],
+      "showWhen": [{"screens": "both"}]
+    },
+    {
+      "key": "dashCenter",
+      "label": "Design B: middle shows",
+      "type": "choice",
+      "default": "range",
+      "options": [["range", "Range"], ["time", "Time"]],
+      "showWhen": [{"screens": "dash", "dashComfort": "b"}, {"screens": "dash", "dashSport": "b"}, {"screens": "dash", "dashEco": "b"}, {"screens": "both", "bothDashComfort": "b"}, {"screens": "both", "bothDashSport": "b"}, {"screens": "both", "bothDashEco": "b"}]
+    },
+    {
       "key": "gmtOffset",
       "label": "Time zone (GMT offset)",
       "type": "choice",
@@ -126,7 +232,7 @@
     },
     {
       "key": "motto",
-      "label": "Comfort message",
+      "label": "EVA message",
       "type": "choice",
       "default": "heaven",
       "options": [

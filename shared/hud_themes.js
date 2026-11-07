@@ -54,6 +54,9 @@ const THEMES = {
         bar: { low: [255, 136, 0], mid: [255, 221, 0], high: [255, 17, 0], midAt: 0.6 },
         rev: { from: [255, 136, 0], to: [255, 136, 0] },
         rule: [255, 136, 0, 110], black: [0, 0, 0, 255], amber: [255, 176, 0, 255], white: [255, 255, 255, 255], live: [255, 255, 255, 215], alert: [255, 17, 0, 255],
+        // the dash's designs on the map area: labels, and MAGI's three votes
+        tag: [255, 180, 92, 255], sub: [192, 138, 72, 255], faint: [58, 36, 16, 255], wire: [122, 74, 24, 255],
+        ok: [84, 224, 143, 255], okSoft: [159, 217, 184, 255], waitSoft: [255, 217, 138, 255], no: [255, 59, 47, 255], noSoft: [255, 177, 170, 255], blue: [111, 182, 255, 255],
     },
     // the EVA HUD's everyday looks: Comfort's dusk and Eco Pro's night
     eva_calm: {
@@ -70,12 +73,21 @@ const THEMES = {
         glow: 0.5, stripe: false,
         bar: { low: [120, 205, 255], mid: [120, 205, 255], high: [255, 200, 90], midAt: 0.7 },
         rev: { from: [120, 205, 255], to: [120, 205, 255] },
+        // for the dash's Eco Pro designs: labels and lamps, as the battle display has them
+        tag: [120, 205, 255, 235], sub: [120, 205, 255, 165], faint: [120, 205, 255, 46], wire: [120, 205, 255, 120],
+        ok: [84, 224, 143, 255], okSoft: [159, 217, 184, 255], waitSoft: [255, 217, 138, 255], no: [255, 59, 47, 255], noSoft: [255, 177, 170, 255], blue: [120, 205, 255, 255],
         rule: [120, 205, 255, 90], black: [0, 0, 0, 255], amber: [255, 176, 0, 255], white: [255, 255, 255, 255], live: [255, 255, 255, 215], alert: [255, 17, 0, 255],
     },
 };
 // every theme: the shift-point red, used by "hot" (the gear and SHIFT at the shift point, the rev bar past it)
 Object.keys(THEMES).forEach((k) => { THEMES[k].hot = [255, 42, 42, 255]; });
 THEMES.eva.hot = [255, 17, 0, 255];
+// the dash's Comfort designs: the battle display's orange for labels and lines, white for what is read
+const ORANGE = [255, 136, 0];
+THEMES.eva_orange_white = Object.assign({}, THEMES.eva, {
+    name: 'EVA Orange and White', soft: [255, 136, 0, 215],
+    bar: { low: ORANGE, mid: ORANGE, high: ORANGE, midAt: 0.7 }, rev: { from: ORANGE, to: ORANGE },
+});
 
 // Redline layout (after cauliflowermossgrape's Redline app): rev bar segments ramp rev.from -> rev.to up to
 // the shift point; the shift lights run green -> yellow -> red in every theme; grade badges by verdict.

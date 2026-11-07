@@ -6,6 +6,8 @@
  *   node bench/test/eva_layout_test.js
  */
 const assert = require('assert');
+const shaders = require('../../shared/shaders');
+const themes = require('../../shared/hud_themes').THEMES;
 const fs = require('fs');
 const path = require('path');
 
@@ -41,6 +43,47 @@ const CALM = () => [comfort(), eco()];
 const WORDS = ['出撃待命', '緊急撤退', '同期解除'];
 const SUBS = ['SORTIE STANDBY // 拘束具固定', 'RETREAT // 総員退避', 'SYNCHRO CUT // 駆動系切離'];
 const MIB = (n) => n * 1024 * 1024;
+// the dash's centre designs, on the map target under BMW's gauges, in the clear shape read off the owner's photo in Sport Plus:
+// BMW's digital speed and its G meter are either side of its middle, and a white line runs in from the left
+const dashA = () => load('layouts/dash_a.json');
+const centreAlert = () => load('layouts/dash_centre_alert.json');
+const WIN = { x: 0, y: 0, w: 1088, h: 480 };
+const BMW_LINE = { x: 0, y: 268, w: 268, h: 24 };
+const LOGO_CX = 540;        // the middle of BMW's model badge over the window
+const SHAPE_LOCAL = [[215, 14, 800, 100], [205, 100, 820, 340], [205, 340, 850, 452], [205, 452, 790, 466]];
+const SHAPE = SHAPE_LOCAL.map(([l, t, r, b]) => ({ l: l + WIN.x, t: t + WIN.y, r: r + WIN.x, b: b + WIN.y }));
+const inShape = (r) => {
+    for (let y = r.y; y <= r.y + r.h; y += Math.min(4, Math.max(1, r.h))) {
+        for (let x = r.x; x <= r.x + r.w; x += Math.min(4, Math.max(1, r.w))) {
+            if (!SHAPE.some((s) => x >= s.l && x <= s.r && y >= s.t && y <= s.b)) return false;
+        }
+    }
+    return true;
+};
+const dashB = () => load('layouts/dash_b.json');
+const dashD = () => load('layouts/dash_d.json');
+const CENTRE = ['a', 'b', 'c1', 'c2', 'e1', 'e2'].map((n) => [n, () => load('layouts/dash_' + n + '.json')]);
+const ALL_NEW = CENTRE.concat(['c3', 'e3'].map((n) => [n, () => load('layouts/dash_' + n + '.json')]));
+const MOTTOS = { heaven: ['神ハ天ニ在リ', '世ハ全テ事モ無シ'], project: ['人類補完計画', '第3段階 進行中'], angel: ['使徒反応無シ', 'パターン青 未検出'],
+    magi: ['MAGI 全会一致', '本日モ異常無シ'], field: ['A.T.フィールド', '全周展開中'], run: ['逃ゲチャダメダ', '逃ゲチャダメダ'] };
+const MOTTO_EN = ["GOD'S IN HIS HEAVEN // ALL'S RIGHT WITH THE WORLD", 'HUMAN INSTRUMENTALITY', 'NO ANGEL DETECTED', 'MAGI UNANIMOUS', 'A.T. FIELD', "MUSTN'T RUN AWAY"];
+const STATUS_TEXTS = ['SYSTEM STATUS: STANDBY // 待命状態', 'SYSTEM STATUS: CAUTION // 後退操作', 'SYSTEM STATUS: OVER REV // 回転数超過',
+    'SYSTEM STATUS: FULL THROTTLE // 全力全開', 'SYSTEM STATUS: SYNCHRONIZATION ACTIVE // 同期中'];
+const MAGI_WORDS = ['全会一致', '審議中', '否決'];
+const MAGI_SUBS = ['UNANIMOUS // 出撃承認', 'DELIBERATING // 暖機中', 'DELIBERATING // 待機中', 'REJECTED // 油温上昇', 'REJECTED // 水温上昇', 'REJECTED // 回転数超過'];
+const partOf = (l, id) => canvasOf(l).parts.find((p) => p.id === id);
+const hasGlyphs = (f, s) => Array.from(s).forEach((c) => assert.ok(f.glyphs[c], 'no glyph for ' + c + ' in ' + s));
+const SAYS = {
+    '{{statusline}}': STATUS_TEXTS, '{{magi:word}}': MAGI_WORDS, '{{magi:sub}}': MAGI_SUBS, '{{gearcapjp}}': ['主変速器', '待命状態', '後退操作'],
+    '{{oil}}': ['132', '--'], '{{coolant}}': ['118', '--'], '{{boost}}': ['-14.5', '29.0', '--'], '{{power}}': ['430', '--'], '{{range}}': ['999', '--'],
+    '{{u:temp}}': ['°C'], '{{u:boost}}': ['PSI'], '{{u:power}}': ['HP'], '{{u:range}}': ['KM'], '{{u:speed}}': ['KM/H'], 'SYNC {{sync}}%': ['SYNC 99.9%'],
+    '{{hh}}': ['00', '23'], '{{mm}}': ['00', '59'], '{{time}}': ['23:59', '08:08'], '{{burn}}': ['99.9', '6.6', '--'], '{{speed}}': ['299', '--'], '{{rpm}}': ['7200', '--'],
+    '{{motto1}}': Object.values(MOTTOS).map((m) => m[0]), '{{motto2}}': Object.values(MOTTOS).map((m) => m[1]),
+    '{{msub}}': MOTTO_EN.concat(SUBS),
+    '{{wordsub}}': SUBS, '{{b:title}}': ['活動限界まで', '現在時刻'], '{{b:en}}': ['ACTIVE RANGE REMAINING', 'LOCAL TIME'], '{{b:unit}}': ['KM'],
+    '{{gearshort}}': ['P', 'R', 'N', 'D', '8', '-'], '{{range}} KM': ['999 KM', '-- KM'], '{{speed}} KM/H': ['299 KM/H', '-- KM/H'],
+};
+for (let i = 0; i < 12; i++) { SAYS['{{mv:1:' + i + '}}'] = ['']; SAYS['{{mv:2:' + i + '}}'] = ['']; }
 const dash = () => load('layouts/dash_eva.json');
 const dashAlert = () => load('layouts/dash_alert.json');
 const STATUS_ROW_Y = 640;      // BMW's own bottom row (range, time, temperature) stays open under the dash
@@ -98,12 +141,46 @@ const tests = {
             });
         });
     },
-    'the menu chooses the app\'s mode once, and nothing there follows the drive mode'() {
-        const spec = JSON.parse(fs.readFileSync(path.join(HUD, '..', 'app.json'), 'utf8'));
-        const screens = spec.settings.find((x) => x.key === 'screens');
-        assert.deepStrictEqual(screens.options.map((o) => o[0]), ['off', 'hud', 'dash', 'both', 'grid']);
-        assert.strictEqual(screens.default, 'hud');
-        ['byMode', 'inComfort', 'inSport', 'inEco', 'dashLayout', 'hudLayout'].forEach((k) => assert.ok(!spec.settings.some((x) => x.key === k), k + ' is still in the menu'));
+    'the menu starts with the Mode, then what each of its choices shows in each drive mode, and only then the rest'() {
+        const spec = JSON.parse(fs.readFileSync(path.join(HUD, '..', 'app.json'), 'utf8')), keys = spec.settings.map((s) => s.key);
+        assert.deepStrictEqual(keys.slice(0, 14), ['screens', 'hudComfort', 'hudSport', 'hudEco', 'dashComfort', 'dashSport', 'dashEco',
+            'bothHudComfort', 'bothDashComfort', 'bothHudSport', 'bothDashSport', 'bothHudEco', 'bothDashEco', 'dashCenter']);
+        const s = (k) => spec.settings.find((x) => x.key === k);
+        assert.deepStrictEqual(s('screens').options.map((o) => o[0]), ['off', 'hud', 'dash', 'both', 'grid']);
+        assert.strictEqual(s('screens').default, 'hud');
+        [['Comfort', 'comfort'], ['Sport', 'sport'], ['Eco', 'eco']].forEach(([m, own]) => {
+            assert.deepStrictEqual(s('hud' + m).options.map((o) => o[0]), ['comfort', 'sport', 'eco', 'off'], m);
+            assert.strictEqual(s('hud' + m).default, own, 'HUD only: each drive mode has its own by default');
+            assert.deepStrictEqual(s('bothHud' + m).options.map((o) => o[0]), ['eva', 'comfort', 'sport', 'eco', 'off'], m);
+            assert.strictEqual(s('bothHud' + m).default, 'eva', 'HUD + Dash: the battle display made for sharing');
+        });
+        ['byMode', 'inComfort', 'inSport', 'inEco', 'dashLayout', 'hudLayout', 'hudDesign', 'dashDesign', 'bothHud', 'bothDash', 'comfortScreens', 'comfortDash'].forEach((k) => assert.ok(!spec.settings.some((x) => x.key === k), k + ' is still in the menu'));
+    },
+    'each choice of the Mode brings up only its own rows'() {
+        const spec = JSON.parse(fs.readFileSync(path.join(HUD, '..', 'app.json'), 'utf8')), s = (k) => spec.settings.find((x) => x.key === k);
+        const shows = (k, values) => s(k).showWhen.some((w) => Object.keys(w).every((n) => values[n] === w[n]));
+        const rows = ['hudComfort', 'hudSport', 'hudEco', 'dashComfort', 'dashSport', 'dashEco', 'bothHudComfort', 'bothDashComfort', 'bothHudSport', 'bothDashSport', 'bothHudEco', 'bothDashEco'];
+        const on = (screens) => rows.filter((k) => shows(k, { screens }));
+        assert.deepStrictEqual(on('off'), []);
+        assert.deepStrictEqual(on('grid'), []);
+        assert.deepStrictEqual(on('hud'), ['hudComfort', 'hudSport', 'hudEco']);
+        assert.deepStrictEqual(on('dash'), ['dashComfort', 'dashSport', 'dashEco']);
+        assert.deepStrictEqual(on('both'), ['bothHudComfort', 'bothDashComfort', 'bothHudSport', 'bothDashSport', 'bothHudEco', 'bothDashEco']);
+        assert.ok(shows('dashCenter', { screens: 'dash', dashSport: 'b' }));
+        assert.ok(!shows('dashCenter', { screens: 'dash', dashSport: 'a', bothDashSport: 'b' }), 'B is not what shows');
+        assert.ok(shows('dashCenter', { screens: 'both', bothDashEco: 'b' }));
+        assert.ok(!shows('dashCenter', { screens: 'hud', dashSport: 'b' }));
+        assert.ok(!spec.settings.find((x) => x.key === 'motto').showWhen, 'the rest of the menu stays');
+    },
+    'whatever the owner picks, the HUD and the dash fit the pixel memory together'() {
+        const huds = [eva, solo(), comfort(), eco()];
+        const centre = CENTRE.map(([, get]) => normalBytes(get()) + alertBytes(centreAlert()));
+        const whole = ['dash_eva', 'dash_d', 'dash_c3', 'dash_e3'].map((n) => Math.max(normalBytes(load('layouts/' + n + '.json')), alertBytes(dashAlert())));
+        const dash = Math.max.apply(null, centre.concat(whole));
+        huds.forEach((h) => {
+            const bytes = normalBytes(h) + alertBytes(alert) + dash;
+            assert.ok(bytes <= MIB(16), h.name + ': ' + (bytes / MIB(1)).toFixed(1) + ' MiB');
+        });
     },
     'the menu has no units setting, and shows pressure limits in PSI'() {
         const spec = JSON.parse(fs.readFileSync(path.join(HUD, '..', 'app.json'), 'utf8'));
@@ -507,6 +584,329 @@ const tests = {
     'Dash Only fits: the dash holds its normal images or its alert\'s, not both'() {
         const bytes = Math.max(normalBytes(dash()), alertBytes(dashAlert()));
         assert.ok(bytes <= MIB(16), (bytes / MIB(1)).toFixed(1) + ' MiB');
+    },
+    'a centre design and an alert together stay within the 8 layers a client may have'() {
+        CENTRE.forEach(([name, get]) => assert.ok(get().widgets.length + centreAlert().widgets.length + 2 <= 8, name + ': ' + get().widgets.length));
+    },
+    'every centre design draws only where BMW\'s gauges leave it clear'() {
+        CENTRE.forEach(([name, get]) => {
+            const d = get(), c = canvasOf(d);
+            d.widgets.filter((w) => w.id !== 'bg' && w.type !== 'evacanvas').forEach((w) => {
+                const m = w.margin || 0;    // a shader's room for its glow may run over
+                assert.ok(inShape({ x: w.x + m, y: w.y + m, w: w.w - 2 * m, h: w.h - 2 * m }), name + ' ' + w.id);
+            });
+            c.parts.forEach((p) => assert.ok(inShape(onScreen(c, p)), name + ' ' + p.id));
+        });
+    },
+    'a centre design\'s ground fills the window and stays through an alert'() {
+        CENTRE.forEach(([name, get]) => {
+            const bg = get().widgets.find((w) => w.id === 'bg');
+            assert.ok(bg && (bg.type === 'evahex' || bg.type === 'evahazard'), name + ' has no ground');
+            assert.deepStrictEqual([bg.x, bg.y, bg.w, bg.h], [WIN.x, WIN.y, WIN.w, WIN.h], name);
+            assert.strictEqual(bg.keepInAlert, true, name);
+        });
+    },
+    'nothing a centre design says lies under the white line BMW runs in from the left'() {
+        CENTRE.forEach(([name, get]) => {
+            const d = get(), c = canvasOf(d);
+            c.parts.forEach((p) => assert.ok(!clash(onScreen(c, p), BMW_LINE), name + ' ' + p.id));
+            d.widgets.filter((w) => ['evaseven', 'evaword', 'evacolon'].indexOf(w.type) >= 0).forEach((w) => {
+                const m = w.margin || 0;
+                assert.ok(!clash({ x: w.x + m, y: w.y + m, w: w.w - 2 * m, h: w.h - 2 * m }, BMW_LINE), name + ' ' + w.id);
+            });
+        });
+    },
+    'Tokyo-3\'s name sits right under BMW\'s model badge on Comfort\'s clock, and its mark clear of BMW\'s shading'() {
+        const d = load('layouts/dash_c1.json'), c = canvasOf(d), place = onScreen(c, partOf(d, 'place')), logo = onScreen(c, partOf(d, 'logo'));
+        assert.ok(Math.abs(place.x + place.w / 2 - LOGO_CX) <= 2, 'it is ' + (place.x + place.w / 2));
+        assert.ok(logo.x >= 215 && logo.x + logo.w <= 800, 'the mark is in the shading');
+        assert.ok(Math.abs(d.widgets.find((w) => w.type === 'evacolon').x + d.widgets.find((w) => w.type === 'evacolon').w / 2 - LOGO_CX) <= 2, 'the clock is not under the badge');
+    },
+    'the power lamp has moved out of the shading on the left'() {
+        ['b', 'e2'].forEach((n) => {
+            const d = load('layouts/dash_' + n + '.json'), c = canvasOf(d), lamp = onScreen(c, c.parts.find((p) => p.when === 'always'));
+            assert.ok(lamp.x >= 205, n + ': x ' + lamp.x);
+        });
+    },
+    'the centre alert stays in the middle, where BMW\'s digital speed and G meter cannot cover it'() {
+        const a = centreAlert(), c = canvasOf(a), t = a.title;
+        c.parts.forEach((p) => {
+            const r = onScreen(c, p);
+            assert.ok(r.x >= 205 && r.x + r.w <= 820 && inShape(r), p.id + ' is outside the middle');
+        });
+        const title = { x: t.x + t.pad, y: t.y + t.pad, w: t.w - 2 * t.pad, h: t.h - 2 * t.pad };
+        assert.ok(title.x >= 205 && title.x + title.w <= 820 && inShape(title), 'the title is outside the middle');
+        assert.ok(a.rows.knock.every((r) => font(r.font).cellHeight >= 120), 'the title should still be huge');
+    },
+    'parts of every centre design never overlap and lie inside their canvases'() {
+        CENTRE.concat([['alert', centreAlert]]).forEach(([name, get]) => {
+            const c = canvasOf(get());
+            assert.deepStrictEqual(overlaps(c.parts), [], name);
+            c.parts.forEach((p) => assert.ok(fits(p, c.w, c.h), name + ' ' + p.id + ' is off the canvas'));
+        });
+    },
+    'everything any new design can say has its glyphs and fits its box'() {
+        ALL_NEW.forEach(([name, get]) => canvasOf(get()).parts.filter((p) => p.type === 'text').forEach((p) => {
+            const list = SAYS[p.text] || (p.text.indexOf('{{') < 0 ? [p.text] : null);
+            if (p.byMotto) return;
+            assert.ok(list, name + ': nothing lists what ' + p.text + ' says');
+            list.forEach((s) => {
+                hasGlyphs(font(p.font), s);
+                assert.ok(width(s, font(p.font)) <= p.w, name + ' ' + p.id + ': ' + s + ' is ' + width(s, font(p.font)) + ', its box ' + p.w);
+            });
+        }));
+    },
+    'the new designs\' big words have their glyphs and fit their layers'() {
+        ALL_NEW.forEach(([name, get]) => get().widgets.filter((w) => w.type === 'evaword').forEach((w) => WORDS.forEach((s) => {
+            hasGlyphs(font(w.font), s);
+            assert.ok(width(s, font(w.font)) <= w.w - 2 * w.pad, name + ': ' + s);
+        })));
+    },
+    'the new designs\' lamps have their glyphs and fit'() {
+        ALL_NEW.forEach(([name, get]) => canvasOf(get()).parts.filter((p) => p.type === 'lamp').forEach((p) => {
+            const tops = p.top === '{{b:power}}' ? ['外部電源', '内部電源'] : [p.top], subs = p.sub === '{{b:powersub}}' ? ['EXTERNAL', 'INTERNAL'] : p.sub ? [p.sub] : [];
+            tops.forEach((s) => { hasGlyphs(font(p.fonts.top), s); assert.ok(width(s, font(p.fonts.top)) <= p.w - 6, name + ' ' + s); });
+            subs.forEach((s) => { hasGlyphs(font(p.fonts.sub), s); assert.ok(width(s, font(p.fonts.sub)) <= p.w - 6, name + ' ' + s); });
+        }));
+    },
+    'the new designs\' logos are the size of the files they draw'() {
+        ALL_NEW.forEach(([name, get]) => canvasOf(get()).parts.filter((p) => p.type === 'logo').forEach((p) => {
+            const m = load(p.src);
+            assert.deepStrictEqual([m.w, m.h], [p.w, p.h], name);
+        }));
+    },
+    'each drive mode\'s designs are in its colours: orange, orange and white, and blue'() {
+        const theme = (n) => load('layouts/dash_' + n + '.json').theme;
+        ['a', 'b', 'd'].forEach((n) => assert.strictEqual(theme(n), 'eva', n));
+        ['c1', 'c2', 'c3'].forEach((n) => assert.strictEqual(theme(n), 'eva_orange_white', n));
+        ['e1', 'e2', 'e3'].forEach((n) => assert.strictEqual(theme(n), 'eva_eco', n));
+        const t = themes.eva_orange_white;
+        assert.deepStrictEqual(t.fg, themes.eva.fg, 'its orange is the battle display\'s');
+        assert.deepStrictEqual(t.white.slice(0, 3), [255, 255, 255]);
+        [t, themes.eva_eco].forEach((x) => ['tag', 'sub', 'faint', 'wire', 'white', 'amber', 'ok', 'no', 'blue'].forEach((r) => assert.ok(x[r], x.name + ' has no ' + r)));
+    },
+    'Comfort\'s numbers are white and its labels orange'() {
+        const is = (n, id, role) => assert.strictEqual(partOf(load('layouts/dash_' + n + '.json'), id).color, role, n + ' ' + id);
+        is('c1', 'hh', 'white'); is('c1', 'mm', 'white'); is('c1', 'range', 'white'); is('c1', 'place', 'fg');
+        is('c2', 'time', 'white'); is('c2', 'range', 'white'); is('c2', 'row1', 'white'); is('c2', 'row2', 'white');
+        is('c3', 'speed', 'white'); is('c3', 'place', 'fg'); is('c3', 'hh', 'fg');
+    },
+    'design C2 fills the shape with each line: every row has a font of its own, at most the shape wide'() {
+        const d = load('layouts/dash_c2.json');
+        [['row1', 0, 610], ['row2', 1, 642]].forEach(([id, i, max]) => {
+            const p = partOf(d, id);
+            Object.keys(MOTTOS).forEach((k) => {
+                const m = p.byMotto[k], f = font(m.font), s = MOTTOS[k][i];
+                assert.ok(m, k);
+                hasGlyphs(f, s);
+                assert.ok(width(s, f) <= max && width(s, f) <= p.w, k + ': ' + width(s, f));
+                assert.ok(m.offsetY + f.cellHeight <= p.h, k + ' runs off its box');
+            });
+        });
+        const heaven = partOf(d, 'row2').byMotto.heaven;
+        assert.ok(width(MOTTOS.heaven[1], font(heaven.font)) > 600, 'the line is not as big as it can be');
+    },
+    'the lines are hidden behind the big word in P, R and N'() {
+        ['c1', 'e1'].forEach((n) => canvasOf(load('layouts/dash_' + n + '.json')).parts.filter((p) => /motto/.test(p.text)).forEach((p) => assert.strictEqual(p.driving, true, n + ' ' + p.id)));
+        assert.strictEqual(partOf(load('layouts/dash_c2.json'), 'row1').driving, true);
+        assert.strictEqual(partOf(load('layouts/dash_c2.json'), 'row2').driving, true);
+    },
+    'design C3 sets the line vertically, a cell for each character'() {
+        const d = load('layouts/dash_c3.json');
+        [1, 2].forEach((row) => {
+            const cells = canvasOf(d).parts.filter((p) => new RegExp('^\\{\\{mv:' + row + ':').test(p.text));
+            const longest = Math.max.apply(null, Object.values(MOTTOS).map((m) => m[row - 1].replace(/ /g, '').length));
+            assert.ok(cells.length >= longest, 'column ' + row + ' has ' + cells.length + ' cells for ' + longest + ' characters');
+            cells.forEach((p) => {
+                const f = font(p.font);
+                Object.values(MOTTOS).forEach((m) => Array.from(m[row - 1].replace(/ /g, '').replace(/ー/g, '｜')).forEach((ch) => {
+                    hasGlyphs(f, ch);
+                    assert.ok(width(ch, f) <= p.w, ch + ' is wider than its cell');
+                }));
+            });
+            const xs = new Set(cells.map((p) => p.x + p.w / 2));
+            assert.strictEqual(xs.size, 1, 'a column should be straight');
+        });
+    },
+    'the whole-cluster designs stay on the cluster, clear of BMW\'s row and the hood, and fit an alert'() {
+        [['c3', load('layouts/dash_c3.json')], ['e3', load('layouts/dash_e3.json')]].forEach(([name, d]) => {
+            d.widgets.forEach((w) => assert.ok(w.x >= 0 && w.y >= 0 && w.x + w.w <= 1920 && w.y + w.h <= STATUS_ROW_Y, name + ' ' + w.id));
+            const c = canvasOf(d);
+            assert.deepStrictEqual(overlaps(c.parts), [], name);
+            c.parts.forEach((p) => {
+                assert.ok(fits(p, c.w, c.h), name + ' ' + p.id + ' is off the canvas');
+                assert.ok(visible(onScreen(c, p)), name + ' ' + p.id + ' goes under the hood');
+            });
+            const big = d.widgets.filter((w) => w.type === 'evagear' || w.type === 'evacanvas').length;
+            assert.ok(d.widgets.length - big + 3 <= 8, name + ': ' + (d.widgets.length - big + 3) + ' layers in an alert');
+        });
+    },
+    'E1\'s bar follows the fuel use, E2 has its rings, and E3 always shows the range in its seven segments'() {
+        const bar = load('layouts/dash_e1.json').widgets.find((w) => w.type === 'evaseg');
+        assert.strictEqual(bar.source, 'burn');
+        assert.ok(load('layouts/dash_e2.json').widgets.find((w) => w.type === 'evarings'), 'no rings');
+        assert.strictEqual(load('layouts/dash_e3.json').widgets.find((w) => w.type === 'evaseven').rangeOnly, true);
+    },
+    'the colons that breathe have layers of their own in Comfort\'s big clocks'() {
+        ['c1', 'c3'].forEach((n) => assert.ok(load('layouts/dash_' + n + '.json').widgets.find((w) => w.type === 'evacolon'), n));
+    },
+    'the seven segments stay out of the separator\'s column'() {
+        // a digit drawn with the separator's unshifted x lands its left side in the gap: 299.0 read like 29910 on the car
+        assert.ok(/clamp\(floor\([^;]*u_sepAfter/.test(shaders.evaseven) || /u_sepAfter[^;]*clamp\(floor/.test(shaders.evaseven), 'the digit index is not held to its side of the separator');
+    },
+    'a gear digit of design A sits in the middle of its frame, not low in it'() {
+        const d = dashA(), g = d.widgets.find((w) => w.type === 'evagear'), fr = d.widgets.find((w) => w.type === 'evaframe'), f = font(g.fontPrefix + 'gear');
+        assert.ok(f.cellHeight <= g.h, 'the digit is taller than its layer');
+        assert.strictEqual(g.y + g.h / 2, fr.y + fr.h / 2, 'the gear is not centred up and down in its frame');
+        ['0', '3', '6', '8'].forEach((c) => assert.ok(f.glyphs[c].h >= f.cellHeight - 4, c + ' is not as tall as the cell'));
+    },
+    'the owner\'s words for P, R and N fit the gear\'s layer of design A'() {
+        const g = dashA().widgets.find((w) => w.type === 'evagear'), f = font(g.fontPrefix + 'gearjp');
+        ['出撃', '待命', '緊急', '撤退', '同期', '解除', '予備'].forEach((s) => {
+            hasGlyphs(f, s);
+            assert.ok(width(s, f) <= g.w, s + ' is too wide');
+        });
+        assert.ok(g.wordPitch + f.cellHeight <= g.h, 'two rows do not fit');
+        assert.strictEqual(g.words, true);
+    },
+    'the MAGI plates of design A name what they watch, in a row, in fonts that have the glyphs'() {
+        const d = dashA(), got = {};
+        ['plate_m', 'plate_b', 'plate_c'].forEach((id) => {
+            const p = partOf(d, id);
+            got[p.magi] = p.name + ' ' + p.watch;
+            hasGlyphs(font(p.fonts.name), p.name);
+            hasGlyphs(font(p.fonts.ok), '承認否決');
+            hasGlyphs(font(p.fonts.wait), '審議中');
+            hasGlyphs(font(p.fonts.watch), p.watch);
+            ['承認', '否決'].forEach((s) => assert.ok(width(s, font(p.fonts.ok)) <= p.w, s + ' does not fit a plate'));
+            assert.ok(width('審議中', font(p.fonts.wait)) <= p.w - 8, '審議中 does not fit a plate');
+            assert.ok(width(p.name, font(p.fonts.name)) <= p.w - 8, p.name + ' does not fit a plate');
+        });
+        assert.deepStrictEqual(got, { balthasar: 'BALTHASAR·2 水温', casper: 'CASPER·3 駆動', melchior: 'MELCHIOR·1 油温' });
+        const ys = ['plate_m', 'plate_b', 'plate_c'].map((id) => partOf(d, id).y);
+        assert.strictEqual(new Set(ys).size, 1, 'the plates should be in one row');
+    },
+    'all six alerts have their rows in the centre alert, inside the title layer'() {
+        const a = centreAlert();
+        ['knock', 'heat', 'boost', 'fuel', 'afr', 'multi'].forEach((id) => {
+            assert.ok(a.rows[id] && a.rows[id].length === 2, id);
+            a.rows[id].forEach((r) => {
+                const f = font(r.font);
+                hasGlyphs(f, r.text);
+                assert.ok(r.y >= 0 && r.y + f.cellHeight <= a.title.h, id + ' row runs off the title layer');
+                assert.ok(width(r.text, f) <= a.title.w, id + ' row is too wide');
+            });
+        });
+    },
+    'a centre design keeps its normal images and an alert\'s at once, even beside the HUD at its peak'() {
+        CENTRE.forEach(([name, get]) => {
+            const alone = normalBytes(get()) + alertBytes(centreAlert());
+            assert.ok(alone <= MIB(12), name + ': ' + (alone / MIB(1)).toFixed(1) + ' MiB');
+            const both = alone + normalBytes(eva) + alertBytes(alert);
+            assert.ok(both <= MIB(16), name + ' with the HUD: ' + (both / MIB(1)).toFixed(1) + ' MiB');
+        });
+    },
+    'a whole-cluster design holds its normal images or its alert\'s, within the budget'() {
+        [dashD(), load('layouts/dash_c3.json'), load('layouts/dash_e3.json')].forEach((d) => {
+            const bytes = Math.max(normalBytes(d), alertBytes(dashAlert()));
+            assert.ok(bytes <= MIB(16), d.name + ': ' + (bytes / MIB(1)).toFixed(1) + ' MiB');
+        });
+    },
+    'each drive mode can pick any of the ten designs or none, with the whole cluster as the default'() {
+        const spec = JSON.parse(fs.readFileSync(path.join(HUD, '..', 'app.json'), 'utf8'));
+        const all = ['whole', 'a', 'b', 'd', 'c1', 'c2', 'c3', 'e1', 'e2', 'e3', 'off'];
+        ['dashComfort', 'dashSport', 'dashEco', 'bothDashComfort', 'bothDashSport', 'bothDashEco'].forEach((key) => {
+            const s = spec.settings.find((x) => x.key === key);
+            assert.ok(s, 'no ' + key);
+            assert.deepStrictEqual(s.options.map((o) => o[0]), all, key);
+            assert.strictEqual(s.default, 'whole', key);
+        });
+        const c = spec.settings.find((x) => x.key === 'dashCenter');
+        assert.deepStrictEqual(c.options.map((o) => o[0]), ['range', 'time']);
+        assert.strictEqual(c.default, 'range');
+        assert.ok(spec.shared.indexOf('eva_magi.js') >= 0, 'eva_magi.js is not shipped');
+    },
+    'design B stays small: three layers'() {
+        assert.strictEqual(dashB().widgets.length, 3);
+    },
+    'design B has its seven segments in the middle, drawn by a shader, and hazard stripes as its ground'() {
+        const d = dashB(), seven = d.widgets.find((w) => w.type === 'evaseven'), bg = d.widgets.find((w) => w.type === 'evahazard');
+        assert.ok(seven && bg, 'a layer is missing');
+        const c = canvasOf(d), lamps = c.parts.filter((p) => p.type === 'lamp').map((p) => onScreen(c, p));
+        assert.strictEqual(lamps.length, 4);
+        lamps.forEach((l) => assert.ok(!clash(l, { x: seven.x + seven.margin, y: seven.y + seven.margin, w: seven.w - 2 * seven.margin, h: seven.h - 2 * seven.margin }), 'a lamp is under the digits'));
+    },
+    'design B\'s power lamp shows only the state it is in, and its drive-mode lamps what the owner picked'() {
+        const parts = canvasOf(dashB()).parts.filter((p) => p.type === 'lamp');
+        assert.deepStrictEqual(parts.map((p) => p.when), ['always', 'eco', 'comfort', 'sport']);
+        assert.deepStrictEqual(parts.map((p) => p.top), ['{{b:power}}', 'SLOW', 'NORMAL', 'RACING']);
+    },
+    'design D stays within the 8 layers with an alert, on the cluster and clear of BMW\'s bottom row'() {
+        const d = dashD();
+        assert.ok(d.widgets.length + dashAlert().widgets.length + 2 <= 8, d.widgets.length + ' layers');
+        d.widgets.forEach((w) => assert.ok(w.x >= 0 && w.y >= 0 && w.x + w.w <= 1920 && w.y + w.h <= STATUS_ROW_Y, w.id));
+    },
+    'nothing of design D goes under the hood, and its parts never overlap'() {
+        const d = dashD(), c = canvasOf(d);
+        assert.deepStrictEqual(overlaps(c.parts), []);
+        c.parts.forEach((p) => {
+            assert.ok(fits(p, c.w, c.h), p.id + ' is off the canvas');
+            assert.ok(visible(onScreen(c, p)), p.id + ' goes under the hood');
+        });
+        d.widgets.filter((w) => w.type === 'evaseg').forEach((w) => assert.ok(visible(w), w.id + ' goes under the hood'));
+    },
+    'design D has no MAGI: its place shows the live revs, as large as the design allows'() {
+        const d = dashD(), parts = canvasOf(d).parts;
+        assert.ok(!parts.some((p) => p.type === 'plate' || p.type === 'wires' || /magi/i.test(p.text || '')), 'MAGI is still there');
+        const r = partOf(d, 'rpm_v'), s = partOf(d, 'speed_v'), f = font(r.font);
+        assert.strictEqual(r.text, '{{rpm}}');
+        ['6999', '--'].forEach((t) => { hasGlyphs(f, t); assert.ok(width(t, f) <= r.w, t + ' does not fit'); });
+        assert.ok(r.y > s.y + s.h - 1, 'the revs should be under the speed');
+        assert.ok(f.cellHeight >= 90, 'the revs are too small to read: ' + f.cellHeight);
+    },
+    'everything design D can say has its glyphs and fits its box'() {
+        const d = dashD(), fit = (id, list) => {
+            const p = partOf(d, id), f = font(p.font);
+            list.forEach((s) => { hasGlyphs(f, s); assert.ok(width(s, f) <= p.w, s + ' does not fit ' + p.w); });
+        };
+        fit('status', STATUS_TEXTS);
+        fit('cap', ['主変速器', '待命状態', '後退操作']);
+        fit('speed_v', ['299', '--']);
+        fit('oil_v', ['132', '--']);
+        fit('water_v', ['118', '--']);
+        fit('boost_v', ['-14.5', '29.0', '--']);
+        fit('power_v', ['430', '--']);
+        fit('range_v', ['999', '--']);
+        canvasOf(d).parts.filter((p) => p.type === 'text' && p.text.indexOf('{{') < 0).forEach((p) => {
+            hasGlyphs(font(p.font), p.text);
+            assert.ok(width(p.text, font(p.font)) <= p.w, p.id + ' does not fit');
+        });
+    },
+    'design D\'s gear sits in the middle of its frame, with the owner\'s words in its own font'() {
+        const d = dashD(), f = d.widgets.find((w) => w.type === 'evaframe'), g = d.widgets.find((w) => w.type === 'evagear');
+        assert.strictEqual(f.x + f.w / 2, 960);
+        assert.strictEqual(g.x + g.w / 2, 960);
+        assert.strictEqual(g.y + g.h / 2, f.y + f.h / 2);
+        assert.strictEqual(g.words, true);
+        const jp = font(g.fontPrefix + 'gearjp');
+        ['出撃', '待命', '緊急', '撤退', '同期', '解除', '予備'].forEach((s) => { hasGlyphs(jp, s); assert.ok(width(s, jp) <= g.w, s); });
+        assert.ok(g.wordPitch + jp.cellHeight <= g.h, 'two rows do not fit');
+    },
+    'design D\'s logo stays clear of the rev bar and the speed'() {
+        const d = dashD(), c = canvasOf(d), logo = onScreen(c, partOf(d, 'logo')), rev = d.widgets.find((w) => w.type === 'evaseg');
+        assert.ok(logo.y >= rev.y + rev.h, 'the logo starts at ' + logo.y + ', the rev bar ends at ' + (rev.y + rev.h));
+    },
+    'design D\'s logo is the size of the file it draws'() {
+        const p = partOf(dashD(), 'logo'), m = load(p.src);
+        assert.deepStrictEqual([m.w, m.h], [p.w, p.h]);
+    },
+    'designs B and D fit the pixel memory at their peaks'() {
+        const b = normalBytes(dashB()) + alertBytes(centreAlert());
+        assert.ok(b <= MIB(12), (b / MIB(1)).toFixed(1) + ' MiB');
+        const d = Math.max(normalBytes(dashD()), alertBytes(dashAlert()));
+        assert.ok(d <= MIB(16), (d / MIB(1)).toFixed(1) + ' MiB');
+        const both = normalBytes(eva) + alertBytes(alert) + Math.max(b, d);
+        assert.ok(both <= MIB(16), (both / MIB(1)).toFixed(1) + ' MiB with the HUD');
     },
     'HUD + Dash fits, with both screens at their peak at once'() {
         const bytes = normalBytes(eva) + alertBytes(alert) + Math.max(normalBytes(dash()), alertBytes(dashAlert()));

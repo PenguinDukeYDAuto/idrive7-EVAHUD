@@ -14,10 +14,21 @@
  * The service counts every image twice against 16 MiB (Compositor::add_image, "the service's pixel memory is full"). The
  * dash's big images don't all fit, so it holds either its normal images or its alert's: an alert drops the gear and the
  * text and the alert's end brings them back. The car found this; the HUD's images are small enough to keep.
+ *
+ * The menu picks a design. The centre designs (A, B, C1, C2, E1, E2) draw on cluster-render's map target, the 1088x480 window under
+ * BMW's gauges, so everything of BMW's stays on top and works: the panel over the gauges took BMW's own content away (its on-board
+ * computer area, seen on the car). They keep to the shape BMW's digital speed and G meter leave clear (tools/eva_layout.py CLEAR_SHAPE),
+ * small enough to keep their images through an alert, so an alert's end sends nothing, and they have a slot of their own, so a BMW
+ * pop-up draws over them and they never have to give way.
+ * D, C3 and E3, like the original, cover the whole cluster on the panel, with the same alert and the same care for memory and pop-ups.
+ *   contend:    takes the slot from BMW's map in Map view (Off leaves the slot free).
+ *   guide_hold: 0 keeps cluster-render from holding a second slot to hide BMW's CarPlay turn box. It shows over us.
  */
 const EvaHud = require('./eva_hud');
 
 const POPUP_SLOT = 0x202;
+const CENTRE_DESIGNS = ['a', 'b', 'c1', 'c2', 'e1', 'e2'];
+const WHOLE_DESIGNS = ['d', 'c3', 'e3'];     // besides the original, 'eva'
 const TEXT_MS = 250;     // its text rectangles are about four times the HUD's, and share one upload budget with it
 
 class EvaDash extends EvaHud {
@@ -29,10 +40,19 @@ class EvaDash extends EvaHud {
 
     _layoutName() {
         const s = this._screens();
-        return s === 'dash' || s === 'both' ? 'eva' : 'off';
+        if (s !== 'dash' && s !== 'both') return 'off';
+        const design = this._dashDesign();
+        if (design === 'off') return 'off';
+        return CENTRE_DESIGNS.indexOf(design) >= 0 || WHOLE_DESIGNS.indexOf(design) >= 0 ? design : 'eva';
     }
-    _layoutFile(name) { return name === 'off' ? name : 'dash_' + name; }
-    _followsDriveMode() { return false; }     // no layouts per drive mode yet
+    _layoutFile(name) {
+        if (name === 'off') return name;
+        return name === 'alert' && this._isCentre() ? 'dash_centre_alert' : 'dash_' + name;
+    }
+    _layoutLabel(name) { return name === 'eva' ? 'EVA' : 'Design ' + name.toUpperCase(); }
+    _isCentre() { return CENTRE_DESIGNS.indexOf(this._layoutName()) >= 0; }
+    _followsDriveMode() { const s = this._screens(); return s === 'dash' || s === 'both'; }
+    _layerFields() { return this.target === 'map' ? { contend: 1, guide_hold: 0 } : {}; }
     _popupSlot() { return POPUP_SLOT; }
 
     /* what the HUD owns */
@@ -50,7 +70,10 @@ class EvaDash extends EvaHud {
 
     _isBigImage(w) { return w.type === 'evagear' || w.type === 'evacanvas'; }
 
+    _yieldToPopup(now) { return this.target === 'map' ? false : super._yieldToPopup(now); }
+
     _showAlert(key, now) {
+        if (this._isCentre()) { super._showAlert(key, now); return; }
         if (key && !this.alertLayers) {
             this.freedWidgets = [];
             this.widgets.forEach((x, id) => {
@@ -71,6 +94,8 @@ class EvaDash extends EvaHud {
     }
 
     _rebuildInner() {
+        const target = this._isCentre() ? 'map' : 'panel';
+        if (target !== this.target) { this.target = target; this.targetState = null; }
         this.freedWidgets = [];
         super._rebuildInner();
     }

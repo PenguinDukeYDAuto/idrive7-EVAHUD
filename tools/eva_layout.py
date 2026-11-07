@@ -8,7 +8,7 @@ Everything is designed on a 640x380 area and stretched to yours, with fonts scal
 under 14 px. After measuring the car this is the only thing to re-run. If it doesn't fit it says so and changes nothing.
 The dash uses the same design on the cluster, in DASH_AREA below.
 
-Writes apps/eva_hud/hud/fonts/*.json and hud/layouts/{eva,hud_only_sport,hud_only_comfort,hud_only_eco,alert,dash_eva,dash_alert}.json.
+Writes apps/eva_hud/hud/fonts/*.json and hud/layouts/{eva,hud_only_sport,hud_only_comfort,hud_only_eco,alert,dash_eva,dash_alert,dash_a,dash_b,dash_d,dash_c1,dash_c2,dash_c3,dash_e1,dash_e2,dash_e3,dash_centre_alert}.json.
 
 The fonts need MatissePro-EB.otf (MATISSE below, or the MATISSE environment variable): a commercial typeface,
 so these atlases stay on the owner's machine and car. Never publish this app's hud/fonts/.
@@ -46,6 +46,21 @@ LOGO_MASK = os.path.join(HERE, 'assets', 'nerv_mask.png')
 # (range, time, temperature) stays open under y=640. The alert sits lower, where the hood leaves its full width.
 DASH_AREA = (120, 36, 1680, 600)
 DASH_ALERT_AREA = (120, 100, 1650, 515)
+# The centre designs draw on cluster-render's map target, under BMW's gauges, so everything of BMW's stays on top and works. BMW's
+# digital speed, its G meter or on-board computer, and the dark shading of its dial faces cover part of it, so they keep to the shape
+# those leave bright (read off the owner's photos; the drive modes differ only in colour). l, t, r, b in the window's pixels.
+MAP_SIZE = (1088, 480)
+CLEAR_SHAPE = ((215, 14, 800, 100), (205, 100, 820, 340), (205, 340, 850, 452), (205, 452, 790, 466))
+BMW_LINE = (0, 268, 268, 292)       # the white line BMW runs in from the left, under its digital speed
+LOGO_CX = 540                       # the middle of BMW's model badge, over the window
+# an alert keeps to the middle of that shape, its title's column cut to what its two rows need
+MAP_ALERT_AREA = (216, 18, 584, 444)
+MAP_TITLE_W = 286
+# the seven-segment digits' block; shared/shaders.js EVASEVEN has the same sizes
+SEVEN_W, SEVEN_H = 510, 180
+# what MAGI says on design A: shared/eva_magi.js has the same strings
+MAGI_WORDS = ('全会一致', '審議中', '否決')
+MAGI_SUBS = ('UNANIMOUS // 出撃承認', 'DELIBERATING // 暖機中', 'DELIBERATING // 待機中', 'REJECTED // 油温上昇', 'REJECTED // 水温上昇', 'REJECTED // 回転数超過')
 DASH_BG = {'id': 'bg', 'type': 'fill', 'x': 0, 'y': 0, 'w': 1920, 'h': 640, 'class': 'ambient', 'z': 0, 'color': 'black', 'keepInAlert': True}
 
 UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
@@ -79,6 +94,15 @@ MOTTOS = {
     'magi': ('MAGI 全会一致', '本日モ異常無シ'),
     'field': ('A.T.フィールド', '全周展開中'),
     'run': ('逃ゲチャダメダ', '逃ゲチャダメダ'),
+}
+# its English, from the menu's labels (shared/eva_hud.js has the same)
+MOTTO_EN = {
+    'heaven': "GOD'S IN HIS HEAVEN // ALL'S RIGHT WITH THE WORLD",
+    'project': 'HUMAN INSTRUMENTALITY',
+    'angel': 'NO ANGEL DETECTED',
+    'magi': 'MAGI UNANIMOUS',
+    'field': 'A.T. FIELD',
+    'run': "MUSTN'T RUN AWAY",
 }
 
 
@@ -402,40 +426,32 @@ def build_hud(fonts_dir, refuse, area, zone):
     return eva, solo, alert, comfort, eco
 
 
-def build(fonts_dir, refuse, area, alert_area=None, pre='', name='EVA', rev_inset=0, rev_gap=4, status_width=None,
-          gear_scale=1, word_scale=1, speed_scale=1, num_scale=1, value_scale=1, background=None, weight=1):
-    """One screen's two layouts, its fonts baked into fonts_dir with names starting with pre.
-    rev_inset narrows the rev bar and status_width centres the status line, for a screen whose top corners are hidden."""
-    x, y, w, h = area
-    ax, ay, aw, ah = alert_area or area
-    kx, ky = w / 640, h / 380
-    k = min(kx, ky)
+def bake_table(fonts_dir, pre, table):
+    """Bakes the fonts of a table, and gives their cell heights, baselines and glyphs."""
+    cell, baseline, glyphs = {}, {}, {}
+    for font, file, size, cs in table:
+        bake_fonts.bake(fonts_dir, pre + font, file, size, cs)
+        with open(os.path.join(fonts_dir, pre + font + '.json')) as f:
+            meta = json.load(f)
+        cell[font], baseline[font], glyphs[font] = meta['cellHeight'], meta['baseline'], meta['glyphs']
+    return cell, baseline, glyphs
+
+
+def build_alert(fonts_dir, refuse, alert_area, cell, pre, name, about, value_scale=1, title_w=None):
+    """A screen's alert layout, its own fonts baked here. cell has the caller's fonts, among them its 'line'.
+    title_w: the title's column in pixels, when the design's share of the width is too much for a narrow window."""
+    ax, ay, aw, ah = alert_area
     akx, aky = aw / 640, ah / 380
     ak = min(akx, aky)
-    W = lambda v: max(1, round(v * kx))      # noqa: E731  design widths -> HUD pixels
-    F = lambda px: max(MIN_FONT, round(px * k))   # noqa: E731  font sizes, never too small to read on the glass
-    Pad = lambda v: max(1, round(v * k))     # noqa: E731
-    AW = lambda v: max(1, round(v * akx))    # noqa: E731  the same, for the alert's area
+    AW = lambda v: max(1, round(v * akx))    # noqa: E731  design widths -> pixels
     AF = lambda px: max(MIN_FONT, round(px * ak))  # noqa: E731
     APad = lambda v: max(1, round(v * ak))   # noqa: E731
-
     two = chars(*[r for a in ALERTS.values() for r in a['rows'] if len(r) == 2])
     three = chars(*[r for a in ALERTS.values() for r in a['rows'] if len(r) == 3])
     four = chars(*[r for a in ALERTS.values() for r in a['rows'] if len(r) == 4])
-    title_w = AW(352)    # the alert's left column
+    title_w = title_w or AW(352)    # the alert's left column
     title_px = {n: min(title_w // n, ah // 2) for n in (2, 3, 4)}
-    table = [
-        # the normal layout
-        ('gear', MATISSE, round(F(189) * gear_scale), DIGITS),
-        ('gearjp', MATISSE, round(F(92) * word_scale), chars('予備出撃待命')),
-        ('gearrev', BOLD, round(F(72) * word_scale), chars('REVERSE')),
-        ('speed', BOLD, round(F(104) * speed_scale), DIGITS + '-'),
-        ('num42', BOLD, round(F(42) * num_scale), DIGITS + '.-'),
-        ('num38', BOLD, round(F(38) * num_scale), DIGITS + '.-'),
-        ('unit', SEMI, F(16), PLAIN),
-        ('label', MATISSE, F(15), chars(PLAIN, *LABELS)),
-        ('line', MATISSE, F(16), chars(PLAIN, *STATUS_LINES, *[a['status'] for a in ALERTS.values()])),
-        # the alerts
+    own, _, _ = bake_table(fonts_dir, pre, [
         ('k2', MATISSE, title_px[2], two),
         ('k3', MATISSE, title_px[3], three),
         ('k4', MATISSE, title_px[4], four),
@@ -445,6 +461,79 @@ def build(fonts_dir, refuse, area, alert_area=None, pre='', name='EVA', rev_inse
         ('avalue', BOLD, round(AF(113) * value_scale), DIGITS + '.-×'),
         ('aunit', SEMI, AF(38), chars('PSI°C')),
         ('alive', SEMI, AF(21), PLAIN),
+    ])
+    cell.update(own)
+    text, _, rule = part_makers(cell, pre)
+
+    # the alert: the title on the left, the numbers in a column on the right. Colours are the alert's own ('alert').
+    col_x = ax + title_w + AW(19)
+    col_w = ax + aw - col_x
+    col_cx = col_x + col_w / 2
+    at = lambda f, font: ay + ah * f - cell[font] / 2  # noqa: E731
+    uw = AW(60)
+    vbox = col_w - uw - AW(6)
+    pad_en, pad_val = APad(6), APad(8)
+    aparts = [
+        text('tag', '{{a:tag}}', 'atag', at(0.05, 'atag'), cx=col_cx, width=col_w, color='alert'),
+        text('en', '{{a:en}}', 'aen', at(0.16, 'aen'), cx=col_cx, width=col_w - 2 * pad_en, color='white', pad=pad_en),
+        rule('r1', col_x, ay + ah * 0.245, col_w, max(1, round(3 * ak)), 'alert'),
+        text('lab', '{{a:label}}', 'alabel', at(0.305, 'alabel'), cx=col_cx, width=col_w, color='alert'),
+        text('val', '{{a:value}}', 'avalue', at(0.53, 'avalue'), cx=col_x + vbox / 2, width=vbox - 2 * pad_val, color='white', pad=pad_val),
+        text('uni', '{{a:unit}}', 'aunit', at(0.53, 'aunit') + round(24 * ak), left=col_x + col_w - uw, width=uw, color='alert'),
+        text('deg', '{{a:deg}}', 'aunit', at(0.53, 'aunit') - round(26 * ak), left=col_x + col_w - uw, width=uw, color='alert'),
+        rule('r2', col_x, ay + ah * 0.735, col_w, max(1, round(2 * ak)), 'alert'),
+        text('sta', '{{a:status}}', 'line', at(0.795, 'line'), cx=col_cx, width=col_w, color='alert'),
+        text('liv', '{{a:live}}', 'alive', at(0.93, 'alive'), cx=col_cx, width=col_w, color='live'),
+    ]
+    if clashes(aparts):
+        refuse('alert parts overlap: %r' % clashes(aparts))
+    tpad = min(APad(14), ax, ay)
+    title = {'x': ax - tpad, 'y': ay - tpad, 'w': title_w + 2 * tpad, 'h': ah + 2 * tpad, 'pad': tpad}
+    rows = {}
+    for id_, a in ALERTS.items():
+        sizes = [title_px[len(r)] for r in a['rows']]
+        top = tpad + (ah - sum(sizes)) / 2
+        placed = []
+        for r, size in zip(a['rows'], sizes):
+            font = 'k%d' % len(r)
+            placed.append({'text': r, 'font': pre + font, 'y': round(top + (size - cell[font]) / 2)})
+            top += size
+        rows[id_] = placed
+    # a text that doesn't fit is cut off on the HUD: refuse it here rather than find it on the glass
+    def width(s, font):
+        with open(os.path.join(fonts_dir, pre + font + '.json')) as f:
+            g = json.load(f)['glyphs']
+        return sum(g[c]['advance'] for c in s)
+    fixed = [(a['status'], 'line') for i, a in ALERTS.items() if i != 'multi'] + [(a['label'], 'alabel') for a in ALERTS.values()]
+    fixed += [('非常事態 / 燃圧喪失 / 空燃比異常', 'line'), ('MULTIPLE ALERTS', 'aen'), ('FUEL CRITICAL', 'aen')]
+    too_wide = [(s, width(s, f)) for s, f in fixed if width(s, f) > col_w]
+    if too_wide:
+        refuse('these do not fit the %d px column: %r' % (col_w, too_wide))
+    return {'schemaVersion': 2, 'name': name, 'theme': 'eva', '_about': about, 'widgets': [canvas('text', aparts, 'alert', 7)], 'title': title, 'rows': rows}
+
+
+def build(fonts_dir, refuse, area, alert_area=None, pre='', name='EVA', rev_inset=0, rev_gap=4, status_width=None,
+          gear_scale=1, word_scale=1, speed_scale=1, num_scale=1, value_scale=1, background=None, weight=1):
+    """One screen's two layouts, its fonts baked into fonts_dir with names starting with pre.
+    rev_inset narrows the rev bar and status_width centres the status line, for a screen whose top corners are hidden."""
+    x, y, w, h = area
+    kx, ky = w / 640, h / 380
+    k = min(kx, ky)
+    W = lambda v: max(1, round(v * kx))      # noqa: E731  design widths -> HUD pixels
+    F = lambda px: max(MIN_FONT, round(px * k))   # noqa: E731  font sizes, never too small to read on the glass
+    Pad = lambda v: max(1, round(v * k))     # noqa: E731
+
+    table = [
+        # the normal layout
+        ('gear', MATISSE, round(F(189) * gear_scale), DIGITS),
+        ('gearjp', MATISSE, round(F(92) * word_scale), chars('予備', *[s for s, _ in WORDS.values()])),
+        ('gearrev', BOLD, round(F(72) * word_scale), chars('REVERSE')),
+        ('speed', BOLD, round(F(104) * speed_scale), DIGITS + '-'),
+        ('num42', BOLD, round(F(42) * num_scale), DIGITS + '.-'),
+        ('num38', BOLD, round(F(38) * num_scale), DIGITS + '.-'),
+        ('unit', SEMI, F(16), PLAIN),
+        ('label', MATISSE, F(15), chars(PLAIN, *LABELS)),
+        ('line', MATISSE, F(16), chars(PLAIN, *STATUS_LINES, *[a['status'] for a in ALERTS.values()])),
     ]
     cell = {}
     for font, file, size, cs in table:
@@ -526,59 +615,604 @@ def build(fonts_dir, refuse, area, alert_area=None, pre='', name='EVA', rev_inse
     widgets = ([dict(background)] if background else []) + [rev, frame, gear, canvas('text', parts, 'overlay', 10)]
     eva = {'schemaVersion': 2, 'name': name, 'theme': 'eva', '_about': about, 'widgets': widgets}
 
-    # the alert: the title on the left, the numbers in a column on the right. Colours are the alert's own ('alert').
-    col_x = ax + title_w + AW(19)
-    col_w = ax + aw - col_x
-    col_cx = col_x + col_w / 2
-    at = lambda f, font: ay + ah * f - cell[font] / 2  # noqa: E731
-    uw = AW(60)
-    vbox = col_w - uw - AW(6)
-    pad_en, pad_val = APad(6), APad(8)
-    aparts = [
-        text('tag', '{{a:tag}}', 'atag', at(0.05, 'atag'), cx=col_cx, width=col_w, color='alert'),
-        text('en', '{{a:en}}', 'aen', at(0.16, 'aen'), cx=col_cx, width=col_w - 2 * pad_en, color='white', pad=pad_en),
-        rule('r1', col_x, ay + ah * 0.245, col_w, max(1, round(3 * ak)), 'alert'),
-        text('lab', '{{a:label}}', 'alabel', at(0.305, 'alabel'), cx=col_cx, width=col_w, color='alert'),
-        text('val', '{{a:value}}', 'avalue', at(0.53, 'avalue'), cx=col_x + vbox / 2, width=vbox - 2 * pad_val, color='white', pad=pad_val),
-        text('uni', '{{a:unit}}', 'aunit', at(0.53, 'aunit') + round(24 * ak), left=col_x + col_w - uw, width=uw, color='alert'),
-        text('deg', '{{a:deg}}', 'aunit', at(0.53, 'aunit') - round(26 * ak), left=col_x + col_w - uw, width=uw, color='alert'),
-        rule('r2', col_x, ay + ah * 0.735, col_w, max(1, round(2 * ak)), 'alert'),
-        text('sta', '{{a:status}}', 'line', at(0.795, 'line'), cx=col_cx, width=col_w, color='alert'),
-        text('liv', '{{a:live}}', 'alive', at(0.93, 'alive'), cx=col_cx, width=col_w, color='live'),
-    ]
-    if clashes(aparts):
-        refuse('alert parts overlap: %r' % clashes(aparts))
-    tpad = min(APad(14), ax, ay)
-    title = {'x': ax - tpad, 'y': ay - tpad, 'w': title_w + 2 * tpad, 'h': ah + 2 * tpad, 'pad': tpad}
-    rows = {}
-    for id_, a in ALERTS.items():
-        sizes = [title_px[len(r)] for r in a['rows']]
-        top = tpad + (ah - sum(sizes)) / 2
-        placed = []
-        for r, size in zip(a['rows'], sizes):
-            font = 'k%d' % len(r)
-            placed.append({'text': r, 'font': pre + font, 'y': round(top + (size - cell[font]) / 2)})
-            top += size
-        rows[id_] = placed
-    alert = {'schemaVersion': 2, 'name': name + ' alert', 'theme': 'eva', '_about': about, 'widgets': [canvas('text', aparts, 'alert', 7)], 'title': title, 'rows': rows}
+    alert = build_alert(fonts_dir, refuse, alert_area or area, cell, pre, name + ' alert', about, value_scale)
 
-    # a text that doesn't fit is cut off on the HUD: refuse it here rather than find it on the glass
     def width(s, font):
         with open(os.path.join(fonts_dir, pre + font + '.json')) as f:
             g = json.load(f)['glyphs']
         return sum(g[c]['advance'] for c in s)
-    fixed = [(a['status'], 'line') for i, a in ALERTS.items() if i != 'multi'] + [(a['label'], 'alabel') for a in ALERTS.values()]
-    fixed += [('非常事態 / 燃圧喪失 / 空燃比異常', 'line'), ('MULTIPLE ALERTS', 'aen'), ('FUEL CRITICAL', 'aen')]
-    too_wide = [(s, width(s, f)) for s, f in fixed if width(s, f) > col_w]
-    if too_wide:
-        refuse('these do not fit the %d px column: %r' % (col_w, too_wide))
     if max(width(s, 'line') for s in STATUS_LINES) > (status_width or w):
         refuse('a status line does not fit %d px' % (status_width or w))
     layers = len(widgets) + len(alert['widgets']) + 2
     if layers > LAYER_LIMIT:
         refuse('%d layers: cluster-render allows a client %d' % (layers, LAYER_LIMIT))
-    print('%s fitted to %d %d %d %d (scale %.3f x %.3f): %d layers, %d + %d text parts' % (name, x, y, w, h, kx, ky, layers, len(parts), len(aparts)))
+    print('%s fitted to %d %d %d %d (scale %.3f x %.3f): %d layers, %d + %d text parts' % (name, x, y, w, h, kx, ky, layers, len(parts), len(canvas_parts(alert))))
     return eva, alert
+
+
+def kit(fonts_dir, pre, table):
+    """A design's fonts, baked, and the functions that place its parts by their baselines."""
+    cell, baseline, glyphs = bake_table(fonts_dir, pre, table)
+    text, _, rule = part_makers(cell, pre)
+
+    def at(id_, s, font, base, **kw):
+        return text(id_, s, font, base - baseline[font], **kw)
+
+    def tw(s, font):
+        return sum(glyphs[font][c]['advance'] for c in s)
+    return at, tw, rule, cell, baseline
+
+
+def nerv(src, h, x, y, color='fg'):
+    with Image.open(LOGO_MASK) as m:
+        w = round(h * m.width / m.height)
+    return {'id': 'logo', 'type': 'logo', 'src': 'logos/%s.json' % src, 'color': color, 'x': x, 'y': y, 'w': w, 'h': h}
+
+
+def centre_ground(**more):
+    return dict({'id': 'bg', 'type': 'evahex', 'x': 0, 'y': 0, 'w': MAP_SIZE[0], 'h': MAP_SIZE[1], 'r': 26, 'class': 'ambient', 'z': 0, 'keepInAlert': True}, **more)
+
+
+def big_word(font, width, cell_h, cx, cy, pad=8):
+    """The big word for P, R and N, as a layer of its own that fades in over where the line was. cx and cy: its middle."""
+    w, h = width + 2 * pad, cell_h + 2 * pad
+    return {'id': 'word', 'type': 'evaword', 'x': round(cx - w / 2), 'y': round(cy - h / 2), 'w': w, 'h': h, 'font': font, 'pad': pad, 'sx': 1, 'sy': 1, 'class': 'overlay', 'z': 8}
+
+
+def in_shape(r):
+    """Whether a rectangle, in the window's pixels, lies in the part of it BMW's gauges leave clear."""
+    xs, ys = range(r['x'], r['x'] + r['w'] + 1, 4), range(r['y'], r['y'] + r['h'] + 1, 4)
+    return all(any(a <= x <= c and b <= y <= d for a, b, c, d in CLEAR_SHAPE) for x in xs for y in ys)
+
+
+def on_bmw_line(r):
+    l, t, x2, b = BMW_LINE
+    return r['x'] < x2 and r['x'] + r['w'] > l and r['y'] < b and r['y'] + r['h'] > t
+
+
+def centre_design(name, theme, widgets, refuse):
+    """Checks a centre design against what BMW's gauges leave clear."""
+    for w in widgets:
+        if w['id'] == 'bg':
+            continue
+        if w['type'] == 'evacanvas':
+            if clashes(w['parts']):
+                refuse('%s: parts overlap: %r' % (name, clashes(w['parts'])))
+            for p in w['parts']:
+                r = {'x': p['x'] + w['x'], 'y': p['y'] + w['y'], 'w': p['w'], 'h': p['h']}
+                if not in_shape(r) or on_bmw_line(r):
+                    refuse('%s: %s is outside what BMW leaves clear' % (name, p['id']))
+            continue
+        m = w.get('margin', 0)
+        r = {'x': w['x'] + m, 'y': w['y'] + m, 'w': w['w'] - 2 * m, 'h': w['h'] - 2 * m}
+        if not in_shape(r) or (w['type'] in ('evaseven', 'evaword', 'evacolon') and on_bmw_line(r)):
+            refuse('%s: layer %s is outside what BMW leaves clear' % (name, w['id']))
+    print('EVA dash %s fitted to the clear shape: %d layers' % (name, len(widgets)))
+    about = 'Generated by tools/eva_layout.py for the clear shape between BMW\'s gauges. Re-run that rather than editing this.'
+    return {'schemaVersion': 2, 'name': 'EVA dash ' + name, 'theme': theme, '_about': about, 'widgets': widgets}
+
+
+def build_dash_a(fonts_dir, refuse):
+    """Design A, in the clear shape: the status line and the rev bar across the top band, the gear and four readings in the
+    narrow middle, MAGI's sortie check across the bottom band."""
+    table = [
+        ('gear', MATISSE, 216, DIGITS),
+        ('gearjp', MATISSE, 88, chars('予備', *[s for s, _ in WORDS.values()])),
+        ('status', MATISSE, 19, chars(PLAIN, *STATUS_LINES)),
+        ('line', MATISSE, 17, chars(PLAIN, *[a['status'] for a in ALERTS.values()])),
+        ('label', MATISSE, 23, chars('油温水温増圧出力', '主変速器待命状態後退操作')),
+        ('cap', MATISSE, 19, chars('変速機 UNIT-01', 'MAGI SYSTEM // 出撃判定')),
+        ('en', SEMI, 18, PLAIN),
+        ('num', BOLD, 50, DIGITS + '.-'),
+        ('magi', SEMI, 21, chars('BALTHASAR·2', 'CASPER·3', 'MELCHIOR·1')),
+        ('vote', MATISSE, 40, chars('承認否決')),
+        ('vote3', MATISSE, 36, chars('審議中')),
+        ('watch', MATISSE, 20, chars('水温駆動油')),
+        ('verdict', MATISSE, 50, chars(*MAGI_WORDS)),
+        ('vsub', MATISSE, 16, chars(*MAGI_SUBS)),
+    ]
+    at, tw, rule, cell, baseline = kit(fonts_dir, 'm_', table)
+
+    def plate(id_, magi, name, watch, px):
+        h = 100
+        return {'id': id_, 'type': 'plate', 'magi': magi, 'name': name, 'watch': watch, 'x': px, 'y': 366, 'w': 140, 'h': h, 'corner': 16,
+                'fonts': {'name': 'm_magi', 'ok': 'm_vote', 'wait': 'm_vote3', 'watch': 'm_watch'},
+                'offsets': {'name': 25 - baseline['magi'], 'ok': 66 - baseline['vote'], 'wait': 64 - baseline['vote3'], 'watch': h - 9 - baseline['watch']}}
+
+    frame_x, frame_y, frame_w, frame_h = 206, 100, 296, 238
+    parts = [
+        at('status', '{{statusline}}', 'status', 40, left=218, width=580, hotWhen='now'),
+        {'id': 'logo', 'type': 'logo', 'src': 'logos/nerv_small.json', 'color': 'fg', 'x': 752, 'y': 46, 'w': 44, 'h': 42},
+        at('cap', '{{gearcapjp}}', 'label', 130, left=frame_x + 16, width=110, color='tag'),
+        at('cap3', '変速機 UNIT-01', 'cap', 326, left=frame_x + 16, width=150, color='sub'),
+        at('cap4', 'SYNC {{sync}}%', 'en', 326, right=frame_x + frame_w - 16, width=90, color='sub'),
+        at('magi_t', 'MAGI SYSTEM // 出撃判定', 'cap', 358, left=210, width=400, color='sub'),
+        plate('plate_m', 'melchior', 'MELCHIOR·1', '油温', 208),
+        plate('plate_b', 'balthasar', 'BALTHASAR·2', '水温', 356),
+        plate('plate_c', 'casper', 'CASPER·3', '駆動', 504),
+        at('verdict', '{{magi:word}}', 'verdict', 412, cx=748, width=204, magiTone='main'),
+        at('verdict_s', '{{magi:sub}}', 'vsub', 442, cx=748, width=204, magiTone='soft'),
+    ]
+    right_x, right_w, pad = 516, 300, 4
+    for i, (id_, jp, en, value, unit, hot) in enumerate((
+            ('oil', '油温', 'OIL', '{{oil}}', '{{u:temp}}', 'melchior'), ('water', '水温', 'WATER', '{{coolant}}', '{{u:temp}}', 'balthasar'),
+            ('boost', '増圧', 'BOOST', '{{boost}}', '{{u:boost}}', None), ('power', '出力', 'POWER', '{{power}}', '{{u:power}}', None))):
+        y = 94 + i * 58
+        jw, ew = tw(jp, 'label'), tw(en, 'en')
+        parts.append(at(id_ + '_l', jp, 'label', y + 38, left=right_x, width=jw, color='tag'))
+        parts.append(at(id_ + '_e', en, 'en', y + 38, left=right_x + jw + 7, width=ew, color='sub'))
+        vright = right_x + right_w - 36
+        vleft = right_x + jw + 7 + ew + 4 + pad
+        more = {'magiHot': hot} if hot else {}
+        parts.append(at(id_ + '_v', value, 'num', y + 46, right=vright, width=vright - vleft, pad=pad, **more))
+        parts.append(at(id_ + '_u', unit, 'en', y + 44, right=right_x + right_w, width=30, color='sub'))
+        parts.append(rule(id_ + '_r', right_x, y + 54, right_w, 2, 'faint'))
+    widgets = [
+        centre_ground(),
+        {'id': 'rev', 'type': 'evaseg', 'x': 218, 'y': 52, 'w': 526, 'h': 28, 'segments': 28, 'gap': 4, 'class': 'content', 'z': 5},
+        {'id': 'frame', 'type': 'evaframe', 'x': frame_x, 'y': frame_y, 'w': frame_w, 'h': frame_h, 'class': 'content', 'z': 1, 'weight': 2, 'lineW': 2, 'inset': 6, 'corner': 24},
+        {'id': 'gear', 'type': 'evagear', 'x': frame_x + 6, 'y': frame_y + 6, 'w': frame_w - 12, 'h': frame_h - 12, 'class': 'overlay', 'z': 8, 'fontPrefix': 'm_', 'words': True, 'wordPitch': 92},
+        canvas('text', parts, 'overlay', 10),
+    ]
+    doc = centre_design('A', 'eva', widgets, refuse)
+    about = 'Generated by tools/eva_layout.py for the middle of the window between BMW\'s gauges. Re-run that rather than editing this.'
+    alert = build_alert(fonts_dir, refuse, MAP_ALERT_AREA, cell, 'm_', 'EVA centre alert', about, value_scale=1.15, title_w=MAP_TITLE_W)
+    layers = len(widgets) + len(alert['widgets']) + 2
+    if layers > LAYER_LIMIT:
+        refuse('%d layers: cluster-render allows a client %d' % (layers, LAYER_LIMIT))
+    return doc, alert
+
+
+def lamp_part(id_, when, top, sub, px, py, w, h, tone, pre, baseline, top_font, sub_font='lampsub'):
+    """A lamp: its colour when it is on, a faint outline when off. Its words can be tokens."""
+    fonts = {'top': pre + top_font, 'sub': pre + sub_font}
+    base = h / 2 + (2 if sub else 10)
+    out = {'id': id_, 'type': 'lamp', 'when': when, 'top': top, 'tone': tone, 'x': px, 'y': py, 'w': w, 'h': h, 'corner': 12, 'fonts': fonts,
+           'offsets': {'top': round(base) - baseline[top_font]}}
+    if sub:
+        out['sub'] = sub
+        out['offsets']['sub'] = round(h / 2 + 30) - baseline[sub_font]
+    return out
+
+
+def build_dash_b(fonts_dir, refuse):
+    """Design B, in the clear shape: the range or the time as the seven segments of the show's countdown in the middle, the
+    lamps in what the top band and the upper left leave, the readings across the bottom band."""
+    table = [
+        ('title', MATISSE, 46, chars('活動限界まで', '現在時刻')),
+        ('en', SEMI, 18, chars('ACTIVE RANGE REMAINING', 'LOCAL TIME')),
+        ('unit', BOLD, 34, chars('KM')),
+        ('gear', MATISSE, 74, chars(DIGITS, 'PRND-')),
+        ('lamp', MATISSE, 28, chars('外部電源', '内部電源')),
+        ('lampsub', SEMI, 18, chars('EXTERNAL', 'INTERNAL')),
+        ('lampen', BOLD, 24, chars('SLOW', 'NORMAL', 'RACING')),
+        ('label', MATISSE, 22, chars('油温水温増圧出力', '主変速器待命状態後退操作')),
+        ('cen', SEMI, 15, PLAIN),
+        ('num', BOLD, 50, DIGITS + '.-'),
+        ('cunit', SEMI, 17, PLAIN),
+    ]
+    at, tw, rule, _, baseline = kit(fonts_dir, 'b_', table)
+    lamp = lambda *a: lamp_part(*a, 'b_', baseline, 'lampen')    # noqa: E731
+    digits_x, digits_y, margin = 272, 104, 18
+    digits_w, digits_h = SEVEN_W, SEVEN_H
+    parts = [
+        at('title', '{{b:title}}', 'title', 88, left=218, width=280),
+        at('title_e', '{{b:en}}', 'en', 38, right=798, width=230, color='sub'),
+        at('unit', '{{b:unit}}', 'unit', digits_y + digits_h, right=820, width=38),
+        lamp_part('lamp_power', 'always', '{{b:power}}', None, 272, 292, 136, 44, 'fg', 'b_', baseline, 'lamp'),
+        lamp('lamp_s', 'eco', 'SLOW', None, 502, 48, 96, 38, 'blue'),
+        lamp('lamp_n', 'comfort', 'NORMAL', None, 602, 48, 96, 38, 'ok'),
+        lamp('lamp_r', 'sport', 'RACING', None, 702, 48, 96, 38, 'no'),
+        at('cap', '{{gearcapjp}}', 'label', 374, left=208, width=92, color='tag'),
+        at('gear', '{{gearshort}}', 'gear', 448, cx=254, width=90, hotWhen='now'),
+    ]
+    pad = 4
+    for x, (id_, jp, en, value, unit, hot) in zip((306, 442, 578, 714), (
+            ('oil', '油温', 'OIL', '{{oil}}', '{{u:temp}}', 'melchior'), ('water', '水温', 'WATER', '{{coolant}}', '{{u:temp}}', 'balthasar'),
+            ('boost', '増圧', 'BOOST', '{{boost}}', '{{u:boost}}', None), ('power', '出力', 'POWER', '{{power}}', '{{u:power}}', None))):
+        jw, ew = tw(jp, 'label'), tw(en, 'cen')
+        parts.append(rule(id_ + '_s', x, 346, 2, 104, 'faint'))
+        parts.append(at(id_ + '_l', jp, 'label', 374, left=x + 12, width=jw, color='tag'))
+        parts.append(at(id_ + '_e', en, 'cen', 374, left=x + 12 + jw + 6, width=ew, color='sub'))
+        more = {'magiHot': hot} if hot else {}
+        parts.append(at(id_ + '_v', value, 'num', 444, right=x + 104, width=96, pad=pad, **more))
+        parts.append(at(id_ + '_u', unit, 'cunit', 444, right=x + 134, width=26, color='sub'))
+    widgets = [
+        centre_ground(type='evahazard', stripe=20),
+        {'id': 'seven', 'type': 'evaseven', 'x': digits_x - margin, 'y': digits_y - margin, 'w': digits_w + 2 * margin, 'h': digits_h + 2 * margin,
+         'margin': margin, 'class': 'content', 'z': 5},
+        canvas('text', parts, 'overlay', 10),
+    ]
+    del widgets[0]['r']
+    return centre_design('B', 'eva', widgets, refuse)
+
+
+def build_dash_c1(fonts_dir, refuse):
+    """Comfort, the clock: the time fills the middle with its colon breathing, the wide bands hold the place, the range and the line."""
+    all1, all2 = [m[0] for m in MOTTOS.values()], [m[1] for m in MOTTOS.values()]
+    table = [
+        ('place', MATISSE, 54, chars(PLACE)),
+        ('time', BOLD, 240, DIGITS + ':-'),
+        ('limit', MATISSE, 26, chars('活動限界')),
+        ('range', BOLD, 54, DIGITS + '- KM'),
+        ('motto', MATISSE, 44, chars(*all1, *all2)),
+        ('sub', MATISSE, 17, chars(*MOTTO_EN.values(), *[s for _, s in WORDS.values()])),
+        ('word', MATISSE, 86, chars(*[s for s, _ in WORDS.values()])),
+    ]
+    at, tw, rule, cell, baseline = kit(fonts_dir, 'c1_', table)
+    hours_w, colon_w = tw('00', 'time'), tw(':', 'time')
+    pad, colon_pad = 6, 8
+    left = round(LOGO_CX - (2 * hours_w + colon_w) / 2)
+    hh = at('hh', '{{hh}}', 'time', 320, left=left, width=hours_w + colon_pad, pad=pad, color='white')
+    mm = at('mm', '{{mm}}', 'time', 320, left=left + hours_w + colon_w, width=hours_w, pad=colon_pad, color='white')
+    colon = {'id': 'colon', 'type': 'evacolon', 'x': left + hours_w - colon_pad, 'y': hh['y'], 'w': colon_w + 2 * colon_pad, 'h': hh['h'], 'font': 'c1_time',
+             'pad': colon_pad, 'offsetY': hh['offsetY'], 'class': 'overlay', 'z': 11}
+    parts = [
+        at('place', PLACE, 'place', 82, cx=LOGO_CX, width=tw(PLACE, 'place'), color='fg'),
+        nerv('nerv_c', 58, 722, 26),
+        hh,
+        mm,
+        at('limit', '活動限界', 'limit', 382, left=210, width=tw('活動限界', 'limit'), color='dim'),
+        at('range', '{{range}} KM', 'range', 436, left=210, width=tw('999 KM', 'range') + 4, color='white'),
+        at('motto1', '{{motto1}}', 'motto', 386, right=848, width=380, color='white', driving=True),
+        at('motto2', '{{motto2}}', 'motto', 434, right=848, width=380, color='white', driving=True),
+        at('msub', '{{msub}}', 'sub', 461, right=788, width=560, color='fg', warnWhen='reverse'),
+    ]
+    word_w = max(tw(s, 'word') for s, _ in WORDS.values())
+    widgets = [centre_ground(lines=0), big_word('c1_word', word_w, cell['word'], 848 - word_w / 2 - 8, 392), canvas('text', parts, 'overlay', 10), colon]
+    return centre_design('C1', 'eva_orange_white', widgets, refuse)
+
+
+def motto_rows(fonts_dir, pre, row, width, most):
+    """A font for one row of each line, as big as fits the width. Gives each one's name, cell height and baseline."""
+    out = {}
+    for key, m in MOTTOS.items():
+        text = m[row]
+        name = '%sr%d_%s' % (pre, row + 1, key)
+        px = 100
+        for _ in range(2):      # a font's advance grows a little unevenly with its size
+            bake_fonts.bake(fonts_dir, name, MATISSE, px, chars(text))
+            with open(os.path.join(fonts_dir, name + '.json')) as f:
+                meta = json.load(f)
+            wide = sum(meta['glyphs'][c]['advance'] for c in text)
+            px = min(most, int(px * width / wide))
+        bake_fonts.bake(fonts_dir, name, MATISSE, px, chars(text))
+        with open(os.path.join(fonts_dir, name + '.json')) as f:
+            meta = json.load(f)
+        if sum(meta['glyphs'][c]['advance'] for c in text) > width:
+            px -= 2
+            bake_fonts.bake(fonts_dir, name, MATISSE, px, chars(text))
+            with open(os.path.join(fonts_dir, name + '.json')) as f:
+                meta = json.load(f)
+        out[key] = {'font': name, 'cell': meta['cellHeight'], 'baseline': meta['baseline']}
+    return out
+
+
+def line_part(id_, text, rows, left, width, base):
+    """One row of the line: its box takes in every line's font, and each font says where it starts in the box."""
+    top = base - max(r['baseline'] for r in rows.values())
+    bottom = max(base - r['baseline'] + r['cell'] for r in rows.values())
+    by = {k: {'font': r['font'], 'offsetY': base - r['baseline'] - top} for k, r in rows.items()}
+    return {'id': id_, 'type': 'text', 'text': text, 'font': rows['heaven']['font'], 'x': left, 'y': top, 'w': width, 'h': bottom - top, 'align': 'left',
+            'color': 'white', 'driving': True, 'byMotto': by}
+
+
+def build_dash_c2(fonts_dir, refuse):
+    """Comfort, the title card: the line follows the clear shape, its first row in the middle and the second across the wide band."""
+    table = [
+        ('place', MATISSE, 36, chars(PLACE)),
+        ('time', BOLD, 62, DIGITS + ':-'),
+        ('range', BOLD, 38, DIGITS + '- KM'),
+        ('sub', MATISSE, 17, chars(*MOTTO_EN.values(), *[s for _, s in WORDS.values()])),
+        ('word', MATISSE, 146, chars(*[s for s, _ in WORDS.values()])),
+    ]
+    at, tw, rule, cell, baseline = kit(fonts_dir, 'c2_', table)
+    first, second = motto_rows(fonts_dir, 'c2_', 0, 608, 112), motto_rows(fonts_dir, 'c2_', 1, 640, 108)
+    parts = [
+        at('range', '{{range}} KM', 'range', 70, left=218, width=tw('999 KM', 'range') + 4, color='white'),
+        nerv('nerv_s', 46, 368, 28),
+        at('place', PLACE, 'place', 70, cx=LOGO_CX, width=tw(PLACE, 'place'), color='fg'),
+        at('time', '{{time}}', 'time', 72, right=798, width=tw('00:00', 'time') + 4, color='white'),
+        line_part('row1', '{{motto1}}', first, 208, 608, 232),
+        at('msub', '{{msub}}', 'sub', 312, left=274, width=544, color='fg', warnWhen='reverse'),
+        line_part('row2', '{{motto2}}', second, 208, 640, 436),
+    ]
+    word_w = max(tw(s, 'word') for s, _ in WORDS.values())
+    widgets = [centre_ground(lines=0), big_word('c2_word', word_w, cell['word'], 516, 190), canvas('text', parts, 'overlay', 10)]
+    return centre_design('C2', 'eva_orange_white', widgets, refuse)
+
+
+def build_dash_c3(fonts_dir, refuse):
+    """Comfort, the whole cluster: the time and the range on the left, a giant speed in the middle, the line set vertically on
+    the right. It stops above BMW's bottom row and clear of the hood, as design D does, and shows the original's alert."""
+    upright = lambda s: s.replace(' ', '').replace('ー', '｜')    # noqa: E731
+    table = [
+        ('place', MATISSE, 62, chars(PLACE)),
+        ('time', BOLD, 200, DIGITS + ':-'),
+        ('limit', MATISSE, 36, chars('活動限界')),
+        ('range', BOLD, 110, DIGITS + '-'),
+        ('km', BOLD, 42, 'KM '),
+        ('speed', BOLD, 360, DIGITS + '-'),
+        ('small', BOLD, 42, DIGITS + '- KM/H'),
+        ('kmh', SEMI, 36, 'KM/H '),
+        ('v', MATISSE, 50, chars(*[upright(c) for m in MOTTOS.values() for c in m])),
+        ('sub', MATISSE, 34, chars(*[s for _, s in WORDS.values()])),
+        ('word', MATISSE, 160, chars(*[s for s, _ in WORDS.values()])),
+    ]
+    at, tw, rule, cell, baseline = kit(fonts_dir, 'c3_', table)
+    hours_w, colon_w = tw('00', 'time'), tw(':', 'time')
+    pad, colon_pad, left = 5, 6, 156
+    hh = at('hh', '{{hh}}', 'time', 372, left=left, width=hours_w + colon_pad, pad=pad)
+    mm = at('mm', '{{mm}}', 'time', 372, left=left + hours_w + colon_w, width=hours_w, pad=colon_pad)
+    colon = {'id': 'colon', 'type': 'evacolon', 'x': left + hours_w - colon_pad, 'y': hh['y'], 'w': colon_w + 2 * colon_pad, 'h': hh['h'], 'font': 'c3_time',
+             'pad': colon_pad, 'offsetY': hh['offsetY'], 'class': 'overlay', 'z': 11}
+    range_w = tw('999', 'range')
+    parts = [
+        at('place', PLACE, 'place', 176, left=160, width=tw(PLACE, 'place'), color='fg'),
+        nerv('nerv_l', 76, 1400, 112),
+        hh,
+        mm,
+        at('limit', '活動限界', 'limit', 448, left=160, width=tw('活動限界', 'limit'), color='dim'),
+        at('range', '{{range}}', 'range', 590, left=160, width=range_w, color='fg'),
+        at('range_u', 'KM', 'km', 590, left=160 + range_w + 10, width=tw('KM', 'km'), color='dim'),
+        at('sub', '{{wordsub}}', 'sub', 142, cx=960, width=760, color='soft', warnWhen='reverse'),
+        at('speed', '{{speed}}', 'speed', 430, cx=960, width=640, pad=12, color='white', driving=True),
+        at('kmh', 'KM/H', 'kmh', 486, cx=960, width=100, color='dim'),
+        at('small', '{{speed}} KM/H', 'small', 606, cx=960, width=300, color='white', parked=True),
+    ]
+    cells = 9
+    for r, x in ((1, 1700), (2, 1616)):
+        for i in range(cells):
+            parts.append(at('v%d_%d' % (r, i), '{{mv:%d:%d}}' % (r, i), 'v', 166 + i * 56, cx=x, width=60, color='white' if r == 1 else 'soft'))
+    word_w = max(tw(s, 'word') for s, _ in WORDS.values())
+    widgets = [
+        {'id': 'bg', 'type': 'evahex', 'x': 0, 'y': 0, 'w': 1920, 'h': 640, 'r': 30, 'class': 'ambient', 'z': 0, 'keepInAlert': True, 'lines': 0},
+        {'id': 'corners', 'type': 'evacorners', 'x': 130, 'y': 100, 'w': 1630, 'h': 526, 'class': 'content', 'z': 1, 'arm': 56, 'weight': 5, 'open': 0, 'lowerLeft': 526},
+        {'id': 'rev', 'type': 'evaseg', 'x': 660, 'y': 526, 'w': 600, 'h': 22, 'segments': 28, 'gap': 4, 'class': 'content', 'z': 5},
+        big_word('c3_word', word_w, cell['word'], 960, 320),
+        canvas('text', parts, 'overlay', 10),
+        colon,
+    ]
+    if clashes(parts):
+        refuse('design C3: parts overlap: %r' % clashes(parts))
+    about = 'Generated by tools/eva_layout.py for the whole cluster, down to y=640. Re-run that rather than editing this.'
+    print('EVA dash C3 fitted to the cluster: %d layers, %d text parts' % (len(widgets), len(parts)))
+    return {'schemaVersion': 2, 'name': 'EVA dash C3', 'theme': 'eva_orange_white', '_about': about, 'widgets': widgets}
+
+
+def build_dash_e1(fonts_dir, refuse):
+    """Eco Pro, the fuel use: the big number in the middle, a bar across the wide band that fills as it climbs, the rest under it."""
+    table = [
+        ('save', MATISSE, 56, chars('節電')),
+        ('label', MATISSE, 36, chars('燃料消費')),
+        ('sub', MATISSE, 14, chars(*[s for _, s in WORDS.values()])),
+        ('burn', BOLD, 220, DIGITS + '.-'),
+        ('unit', SEMI, 32, 'L/100KM '),
+        ('limit', MATISSE, 24, chars('活動限界')),
+        ('range', BOLD, 54, DIGITS + '-'),
+        ('km', SEMI, 24, 'KM '),
+        ('time', BOLD, 62, DIGITS + ':-'),
+        ('motto', MATISSE, 34, chars(*[c for m in MOTTOS.values() for c in m])),
+        ('word', MATISSE, 146, chars(*[s for s, _ in WORDS.values()])),
+    ]
+    at, tw, rule, cell, baseline = kit(fonts_dir, 'e1_', table)
+    range_w = tw('999', 'range')
+    parts = [
+        at('save', '節電', 'save', 84, left=218, width=tw('節電', 'save')),
+        at('burn_l', '燃料消費', 'label', 84, left=342, width=tw('燃料消費', 'label'), color='soft'),
+        at('sub', '{{wordsub}}', 'sub', 84, left=494, width=232, color='soft', warnWhen='reverse'),
+        nerv('nerv_c', 58, 736, 26),
+        at('burn', '{{burn}}', 'burn', 326, right=636, width=360, pad=8, driving=True),
+        at('burn_u', 'L/100KM', 'unit', 326, left=650, width=166, color='dim', driving=True),
+        at('limit', '活動限界', 'limit', 402, left=210, width=tw('活動限界', 'limit'), color='soft'),
+        at('range', '{{range}}', 'range', 458, left=210, width=range_w),
+        at('range_u', 'KM', 'km', 458, left=210 + range_w + 8, width=tw('KM', 'km'), color='dim'),
+        at('time', '{{time}}', 'time', 458, left=372, width=tw('00:00', 'time') + 4, color='soft'),
+        at('motto1', '{{motto1}}', 'motto', 404, right=848, width=320, color='white', driving=True),
+        at('motto2', '{{motto2}}', 'motto', 446, right=848, width=320, color='white', driving=True),
+    ]
+    word_w = max(tw(s, 'word') for s, _ in WORDS.values())
+    widgets = [
+        centre_ground(lines=0),
+        {'id': 'bar', 'type': 'evaseg', 'source': 'burn', 'x': 208, 'y': 342, 'w': 640, 'h': 22, 'segments': 28, 'gap': 4, 'class': 'content', 'z': 5},
+        big_word('e1_word', word_w, cell['word'], 516, 190),
+        canvas('text', parts, 'overlay', 10),
+    ]
+    return centre_design('E1', 'eva_eco', widgets, refuse)
+
+
+def build_dash_e2(fonts_dir, refuse):
+    """Eco Pro, the rings: hexagons in the middle that light outward as the fuel use climbs, the range and the time in the band under them."""
+    table = [
+        ('save', MATISSE, 54, chars('節電')),
+        ('limit', MATISSE, 24, chars('活動限界', '現在時刻')),
+        ('burnl', MATISSE, 25, chars('燃料消費')),
+        ('burn', BOLD, 92, DIGITS + '.-'),
+        ('unit', SEMI, 21, 'L/100KM '),
+        ('sub', MATISSE, 20, chars(*[s for _, s in WORDS.values()])),
+        ('range', BOLD, 66, DIGITS + '-'),
+        ('km', SEMI, 26, 'KM '),
+        ('time', BOLD, 66, DIGITS + ':-'),
+        ('motto', MATISSE, 30, chars(*[c for m in MOTTOS.values() for c in m])),
+        ('lamp', MATISSE, 26, chars('外部電源', '内部電源')),
+        ('lampsub', SEMI, 16, chars('EXTERNAL', 'INTERNAL')),
+        ('word', MATISSE, 72, chars(*[s for s, _ in WORDS.values()])),
+    ]
+    at, tw, rule, cell, baseline = kit(fonts_dir, 'e2_', table)
+    cx, cy = 516, 204
+    r0, step, rings = 92, 19, 7
+    outer = r0 + step * (rings - 1)
+    rw, rh = 2 * outer + 12, round(outer * 1.7320508) + 12
+    range_w = tw('999', 'range')
+    parts = [
+        at('save', '節電', 'save', 78, left=218, width=tw('節電', 'save')),
+        nerv('nerv_c', 58, 736, 22),
+        lamp_part('lamp_power', 'always', '{{b:power}}', None, 218, 96, 112, 44, 'fg', 'e2_', baseline, 'lamp'),
+        at('burn_l', '燃料消費', 'burnl', cy - 48, cx=cx, width=130, color='soft', driving=True),
+        at('burn', '{{burn}}', 'burn', cy + 34, cx=cx, width=176, pad=4, driving=True),
+        at('burn_u', 'L/100KM', 'unit', cy + 66, cx=cx, width=110, color='dim', driving=True),
+        at('sub', '{{wordsub}}', 'sub', cy + 122, cx=cx, width=420, color='soft', warnWhen='reverse'),
+        at('limit', '活動限界', 'limit', 384, left=210, width=tw('活動限界', 'limit'), color='soft'),
+        at('range', '{{range}}', 'range', 450, left=210, width=range_w),
+        at('range_u', 'KM', 'km', 450, left=210 + range_w + 8, width=tw('KM', 'km'), color='dim'),
+        at('now', '現在時刻', 'limit', 384, right=848, width=tw('現在時刻', 'limit'), color='soft'),
+        at('time', '{{time}}', 'time', 450, right=848, width=tw('00:00', 'time') + 4),
+        at('motto1', '{{motto1}}', 'motto', 418, cx=516, width=300, color='white', driving=True),
+        at('motto2', '{{motto2}}', 'motto', 456, cx=516, width=300, color='white', driving=True),
+    ]
+    word_w = max(tw(s, 'word') for s, _ in WORDS.values())
+    widgets = [
+        centre_ground(lines=0),
+        {'id': 'rings', 'type': 'evarings', 'x': cx - rw // 2, 'y': cy - rh // 2, 'w': rw, 'h': rh, 'r0': r0, 'step': step, 'class': 'content', 'z': 5},
+        big_word('e2_word', word_w, cell['word'], cx, cy),
+        canvas('text', parts, 'overlay', 10),
+    ]
+    return centre_design('E2', 'eva_eco', widgets, refuse)
+
+
+def build_dash_e3(fonts_dir, refuse):
+    """Eco Pro, the whole cluster: design D's skeleton, with the range in seven segments where the gear was and the fuel use under the
+    speed. It stops above BMW's bottom row and clear of the hood, and shows the original's alert."""
+    table = [
+        ('line', MATISSE, 30, chars(PLAIN, *STATUS_LINES)),
+        ('label', MATISSE, 30, chars('速度', '燃料消費', '現在時刻')),
+        ('title', MATISSE, 40, chars('活動限界まで')),
+        ('en', SEMI, 24, PLAIN),
+        ('ten', SEMI, 21, chars('ACTIVE RANGE REMAINING')),
+        ('save', MATISSE, 56, chars('節電')),
+        ('speed', BOLD, 210, DIGITS + '-'),
+        ('burn', BOLD, 150, DIGITS + '.-'),
+        ('km', BOLD, 34, 'KM '),
+        ('time', BOLD, 132, DIGITS + ':-'),
+        ('motto', MATISSE, 58, chars(*[c for m in MOTTOS.values() for c in m])),
+        ('sub', MATISSE, 24, chars(*[s for _, s in WORDS.values()])),
+        ('word', MATISSE, 92, chars(*[s for s, _ in WORDS.values()])),
+        ('lamp', MATISSE, 28, chars('外部電源', '内部電源')),
+        ('lampsub', SEMI, 18, chars('EXTERNAL', 'INTERNAL')),
+        ('lampen', BOLD, 28, chars('SLOW', 'NORMAL', 'RACING')),
+    ]
+    at, tw, rule, cell, baseline = kit(fonts_dir, 'e3_', table)
+    left_x, left_r, value_r = 120, 574, 520
+    frame_x, frame_y, frame_w, frame_h = 592, 126, 736, 512
+    right_x, margin = 1370, 18
+    digits_x, digits_y = 960 - SEVEN_W // 2, 210
+    lamp = lambda id_, when, top, px, py, w, h, tone, sub=None: lamp_part(id_, when, top, sub, px, py, w, h, tone, 'e3_', baseline, 'lamp' if sub else 'lampen')    # noqa: E731
+    parts = [
+        at('status', '{{statusline}}', 'line', 56, cx=960, width=1100),
+        nerv('nerv_d', 62, 509, 116),
+        at('speed_l', '速度', 'label', 158, left=left_x, width=tw('速度', 'label'), color='soft'),
+        at('speed_e', 'SPEED', 'en', 158, left=left_x + tw('速度', 'label') + 10, width=tw('SPEED', 'en'), color='dim'),
+        at('speed_v', '{{speed}}', 'speed', 362, right=value_r, width=360, pad=8),
+        at('speed_u', '{{u:speed}}', 'en', 372, right=left_r, width=46, color='dim'),
+        rule('rule', left_x, 386, left_r - left_x, 2, 'wire'),
+        at('burn_l', '燃料消費', 'label', 424, left=left_x, width=tw('燃料消費', 'label'), color='soft'),
+        at('burn_v', '{{burn}}', 'burn', 590, right=486, width=360, pad=6),
+        at('burn_u', 'L/100KM', 'en', 590, right=left_r, width=80, color='dim'),
+        at('title', '活動限界まで', 'title', 192, left=frame_x + 28, width=tw('活動限界まで', 'title'), color='white'),
+        at('title_e', 'ACTIVE RANGE REMAINING', 'ten', 188, right=frame_x + frame_w - 24, width=tw('ACTIVE RANGE REMAINING', 'ten'), color='dim'),
+        at('unit', 'KM', 'km', digits_y + SEVEN_H, right=frame_x + frame_w - 24, width=50, color='dim'),
+        at('motto1', '{{motto1}}', 'motto', 490, cx=960, width=680, color='white', driving=True),
+        at('motto2', '{{motto2}}', 'motto', 564, cx=960, width=680, color='soft', driving=True),
+        at('sub', '{{wordsub}}', 'sub', 612, cx=960, width=680, color='soft', warnWhen='reverse'),
+        at('save', '節電', 'save', 192, left=right_x, width=tw('節電', 'save')),
+        at('now', '現在時刻', 'label', 262, left=right_x, width=tw('現在時刻', 'label'), color='soft'),
+        at('time', '{{time}}', 'time', 372, right=1800, width=tw('00:00', 'time') + 6),
+        lamp('lamp_ext', 'parked', '外部電源', right_x, 396, 210, 92, 'amber', sub='EXTERNAL'),
+        lamp('lamp_int', 'moving', '内部電源', right_x + 220, 396, 210, 92, 'fg', sub='INTERNAL'),
+        lamp('lamp_s', 'eco', 'SLOW', right_x, 500, 136, 64, 'fg'),
+        lamp('lamp_n', 'comfort', 'NORMAL', right_x + 147, 500, 136, 64, 'ok'),
+        lamp('lamp_r', 'sport', 'RACING', right_x + 294, 500, 136, 64, 'no'),
+    ]
+    if clashes(parts):
+        refuse('design E3: parts overlap: %r' % clashes(parts))
+    word_w = max(tw(s, 'word') for s, _ in WORDS.values())
+    widgets = [
+        {'id': 'bg', 'type': 'evahex', 'x': 0, 'y': 0, 'w': 1920, 'h': 640, 'r': 30, 'class': 'ambient', 'z': 0, 'keepInAlert': True},
+        {'id': 'rev', 'type': 'evaseg', 'x': 280, 'y': 72, 'w': 1360, 'h': 38, 'segments': 28, 'gap': 4, 'class': 'content', 'z': 5},
+        {'id': 'frame', 'type': 'evaframe', 'x': frame_x, 'y': frame_y, 'w': frame_w, 'h': frame_h, 'class': 'content', 'z': 1, 'weight': 2, 'lineW': 2, 'inset': 8, 'corner': 40},
+        {'id': 'seven', 'type': 'evaseven', 'rangeOnly': True, 'x': digits_x - margin, 'y': digits_y - margin, 'w': SEVEN_W + 2 * margin, 'h': SEVEN_H + 2 * margin, 'margin': margin, 'class': 'content', 'z': 5},
+        big_word('e3_word', word_w, cell['word'], 960, 510),
+        canvas('text', parts, 'overlay', 10),
+    ]
+    about = 'Generated by tools/eva_layout.py for the whole cluster, down to y=640. Re-run that rather than editing this.'
+    print('EVA dash E3 fitted to the cluster: %d layers, %d text parts' % (len(widgets), len(parts)))
+    return {'schemaVersion': 2, 'name': 'EVA dash E3', 'theme': 'eva_eco', '_about': about, 'widgets': widgets}
+
+
+def build_dash_d(fonts_dir, refuse):
+    """Design D of the dash, on the whole cluster, stopping above BMW's bottom row and clear of the hood: the speed and the
+    live revs on the left, the giant gear in the middle, a column of readings on the right. It shows the original's alert."""
+    table = [
+        ('line', MATISSE, 30, chars(PLAIN, *STATUS_LINES)),
+        ('label', MATISSE, 30, chars('速度回転数油温水温増圧出力活動限界', '主変速器待命状態後退操作')),
+        ('cap', MATISSE, 25, chars('変速機 UNIT-01')),
+        ('en', SEMI, 24, PLAIN),
+        ('speed', BOLD, 210, DIGITS + '-'),
+        ('rpm', BOLD, 150, DIGITS + '-'),
+        ('num', BOLD, 72, DIGITS + '.-'),
+    ]
+    cell, baseline, glyphs = bake_table(fonts_dir, 'e_', table)
+    text, _, rule = part_makers(cell, 'e_')
+
+    def at(id_, s, font, base, **kw):
+        return text(id_, s, font, base - baseline[font], **kw)
+
+    def tw(s, font):
+        return sum(glyphs[font][c]['advance'] for c in s)
+
+    left_x, left_r, value_r = 120, 574, 520
+    frame_x, frame_w, frame_y, frame_h = 592, 736, 126, 512
+    right_x, right_w = 1370, 430
+    with Image.open(LOGO_MASK) as m:
+        logo_w = round(62 * m.width / m.height)
+
+    def heading(id_, jp, en, base):
+        jw = tw(jp, 'label')
+        return [at(id_ + '_l', jp, 'label', base, left=left_x, width=jw, color='tag'), at(id_ + '_e', en, 'en', base, left=left_x + jw + 10, width=tw(en, 'en'), color='sub')]
+
+    parts = [at('status', '{{statusline}}', 'line', 56, cx=960, width=1100, hotWhen='now'),
+             {'id': 'logo', 'type': 'logo', 'src': 'logos/nerv_d.json', 'color': 'fg', 'x': left_r - logo_w, 'y': 116, 'w': logo_w, 'h': 62}]
+    parts += heading('speed', '速度', 'SPEED', 158)
+    parts += [
+        at('speed_v', '{{speed}}', 'speed', 362, right=value_r, width=360, pad=8),
+        at('speed_u', '{{u:speed}}', 'en', 372, right=left_r, width=46, color='sub'),
+        rule('rule', left_x, 386, left_r - left_x, 2, 'wire'),
+    ]
+    parts += heading('rpm', '回転数', 'RPM', 424)
+    parts += [
+        at('rpm_v', '{{rpm}}', 'rpm', 590, right=value_r, width=360, pad=6),
+        at('rpm_u', 'RPM', 'en', 590, right=left_r, width=46, color='sub'),
+        at('cap', '{{gearcapjp}}', 'label', 176, left=frame_x + 28, width=170, color='tag'),
+        at('cap3', '変速機 UNIT-01', 'cap', 616, left=frame_x + 28, width=210, color='sub'),
+        at('cap4', 'SYNC {{sync}}%', 'en', 616, right=frame_x + frame_w - 24, width=150, color='sub'),
+    ]
+    pad = 6
+    for i, (id_, jp, en, value, unit, hot) in enumerate((
+            ('oil', '油温', 'OIL', '{{oil}}', '{{u:temp}}', 'melchior'), ('water', '水温', 'WATER', '{{coolant}}', '{{u:temp}}', 'balthasar'),
+            ('boost', '増圧', 'BOOST', '{{boost}}', '{{u:boost}}', None), ('power', '出力', 'POWER', '{{power}}', '{{u:power}}', None),
+            ('range', '活動限界', 'RANGE', '{{range}}', '{{u:range}}', None))):
+        y = 132 + i * 100
+        jw, ew = tw(jp, 'label'), tw(en, 'en')
+        parts.append(at(id_ + '_l', jp, 'label', y + 56, left=right_x, width=jw, color='tag'))
+        parts.append(at(id_ + '_e', en, 'en', y + 56, left=right_x + jw + 10, width=ew, color='sub'))
+        vright = right_x + right_w - 52
+        vleft = right_x + jw + 10 + ew + 8 + pad
+        more = {'magiHot': hot} if hot else {}
+        parts.append(at(id_ + '_v', value, 'num', y + 62, right=vright, width=vright - vleft, pad=pad, **more))
+        parts.append(at(id_ + '_u', unit, 'en', y + 62, right=right_x + right_w, width=44, color='sub'))
+        parts.append(rule(id_ + '_r', right_x, y + 76, right_w, 2, 'faint'))
+    if clashes(parts):
+        refuse('design D: parts overlap: %r' % clashes(parts))
+    about = 'Generated by tools/eva_layout.py for the whole cluster, down to y=640. Re-run that rather than editing this.'
+    widgets = [
+        {'id': 'bg', 'type': 'evahex', 'x': 0, 'y': 0, 'w': 1920, 'h': 640, 'r': 30, 'class': 'ambient', 'z': 0, 'keepInAlert': True},
+        {'id': 'rev', 'type': 'evaseg', 'x': 280, 'y': 72, 'w': 1360, 'h': 38, 'segments': 28, 'gap': 4, 'class': 'content', 'z': 5},
+        {'id': 'frame', 'type': 'evaframe', 'x': frame_x, 'y': frame_y, 'w': frame_w, 'h': frame_h, 'class': 'content', 'z': 1, 'weight': 2, 'lineW': 2, 'inset': 8, 'corner': 40},
+        {'id': 'gear', 'type': 'evagear', 'x': frame_x + 6, 'y': frame_y + 8, 'w': frame_w - 12, 'h': frame_h - 16, 'class': 'overlay', 'z': 8, 'fontPrefix': 'd_', 'words': True, 'wordPitch': 201},
+        canvas('text', parts, 'overlay', 10),
+    ]
+    print('EVA dash D fitted to the cluster: %d layers, %d text parts' % (len(widgets), len(parts)))
+    return {'schemaVersion': 2, 'name': 'EVA dash D', 'theme': 'eva', '_about': about, 'widgets': widgets}
 
 
 def main(x, y, w, h):
@@ -595,11 +1229,16 @@ def main(x, y, w, h):
     dash, dash_alert = build(fonts_dir, refuse, DASH_AREA, DASH_ALERT_AREA, pre='d_', name='EVA dash', rev_inset=160, rev_gap=24,
                              status_width=1100, gear_scale=1.7, word_scale=1.33, speed_scale=1.6, num_scale=1.45, value_scale=1.4,
                              background=DASH_BG, weight=2)
+    dash_a, centre_alert = build_dash_a(fonts_dir, refuse)
+    dash_b = build_dash_b(fonts_dir, refuse)
+    dash_d = build_dash_d(fonts_dir, refuse)
+    dash_c1, dash_c2, dash_c3 = build_dash_c1(fonts_dir, refuse), build_dash_c2(fonts_dir, refuse), build_dash_c3(fonts_dir, refuse)
+    dash_e1, dash_e2, dash_e3 = build_dash_e1(fonts_dir, refuse), build_dash_e2(fonts_dir, refuse), build_dash_e3(fonts_dir, refuse)
     for f in os.listdir(fonts_dir):
         shutil.move(os.path.join(fonts_dir, f), os.path.join(APP, 'fonts', f))
     shutil.rmtree(fonts_dir)
     os.makedirs(os.path.join(APP, 'logos'), exist_ok=True)
-    for doc in (solo, comfort, eco):
+    for doc in (solo, comfort, eco, dash_d, dash_c1, dash_c2, dash_c3, dash_e1, dash_e2, dash_e3):
         for logo in (p for p in canvas_parts(doc) if p['type'] == 'logo'):
             with Image.open(LOGO_MASK) as m:
                 small = m.convert('L').resize((logo['w'], logo['h']), Image.LANCZOS)
@@ -609,10 +1248,11 @@ def main(x, y, w, h):
         stale = os.path.join(APP, gone)
         if os.path.exists(stale):
             os.remove(stale)
-    stale_layout = os.path.join(APP, 'layouts', 'eva_solo.json')     # the old name of hud_only_sport
-    if os.path.exists(stale_layout):
-        os.remove(stale_layout)
-    for layout, doc in (('eva', eva), ('hud_only_sport', solo), ('hud_only_comfort', comfort), ('hud_only_eco', eco), ('alert', alert), ('dash_eva', dash), ('dash_alert', dash_alert)):
+    for gone in ('eva_solo.json', 'dash_map_alert.json'):     # old names: hud_only_sport, dash_centre_alert
+        stale_layout = os.path.join(APP, 'layouts', gone)
+        if os.path.exists(stale_layout):
+            os.remove(stale_layout)
+    for layout, doc in (('eva', eva), ('hud_only_sport', solo), ('hud_only_comfort', comfort), ('hud_only_eco', eco), ('alert', alert), ('dash_eva', dash), ('dash_alert', dash_alert), ('dash_a', dash_a), ('dash_b', dash_b), ('dash_d', dash_d), ('dash_centre_alert', centre_alert), ('dash_c1', dash_c1), ('dash_c2', dash_c2), ('dash_c3', dash_c3), ('dash_e1', dash_e1), ('dash_e2', dash_e2), ('dash_e3', dash_e3)):
         with open(os.path.join(APP, 'layouts', layout + '.json'), 'w', encoding='utf8') as f:
             json.dump(doc, f, ensure_ascii=False, indent=1)
             f.write('\n')

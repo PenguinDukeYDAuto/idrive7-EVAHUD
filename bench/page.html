@@ -99,6 +99,7 @@
   const ctx = canvas.getContext('2d');
   const logEl = document.getElementById('log');
   let scene = [];
+  let benchTargets = null;
   const images = new Map();     // key -> canvas holding the layer's pixels
   let dirty = true;
 
@@ -162,7 +163,7 @@
     canvas.width = VW; canvas.height = VH;
     document.getElementById('target').textContent = 'target: ' + v + ' ' + VW + ' x ' + VH;
     document.getElementById('backdropName').textContent = v === 'panel' ? 'stock cluster backdrop' : 'road backdrop';
-    if (v === 'panel') document.getElementById('stageNote').textContent = 'The whole instrument cluster. The backdrop stands in for BMW\'s own gauges and the map window under our layers; the map window is where it sat on Max\'s X3. Anything the app draws opaque covers them, as it would on the car.';
+    if (v === 'panel') document.getElementById('stageNote').textContent = 'The whole instrument cluster. The backdrop stands in for BMW\'s own gauges and the map window under our layers; the map window is where it sat on another car. Anything the app draws opaque covers them, as it would on the car.';
     dirty = true;
   }
   function drawRoad() {
@@ -172,7 +173,7 @@
     ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 4; ctx.setLineDash([30, 30]);
     ctx.beginPath(); ctx.moveTo(400, 222); ctx.lineTo(400, 480); ctx.stroke(); ctx.setLineDash([]);
   }
-  // a rough stand-in for BMW's own cluster: two angular gauges and the map window (416,120 1088x480, from Max's photo Nov 4)
+  // a rough stand-in for BMW's own cluster: two angular gauges and the map window (416,120 1088x480, from a photo of another car)
   function drawStockCluster() {
     ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, VW, VH);
     ctx.fillStyle = '#1d3b5c'; ctx.fillRect(416, 120, 1088, 480);
@@ -270,9 +271,12 @@
   es.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.t === 'log') addLog(m);
-    else if (m.t === 'hello') { setView(m.view || 'hud', m.targets); document.getElementById('title').textContent = 'Bench: ' + m.app; (m.extra || []).forEach(addSignal); }
+    else if (m.t === 'hello') { benchTargets = m.targets; setView(m.view || 'hud', m.targets); document.getElementById('title').textContent = 'Bench: ' + m.app; (m.extra || []).forEach(addSignal); }
     else if (m.t === 'scene') {
       scene = m.layers;
+      // the page shows one target: it follows the app when the app draws on another one alone (the dash's designs, the modes)
+      const drawn = Array.from(new Set(scene.map((l) => l.target)));
+      if (drawn.length === 1 && drawn[0] !== view && benchTargets && benchTargets[drawn[0]]) setView(drawn[0], benchTargets);
       const keys = new Set(scene.map((l) => l.key));
       Array.from(images.keys()).forEach((k) => { if (!keys.has(k)) images.delete(k); });
       renderLayerTable(); dirty = true;
@@ -359,6 +363,8 @@
         ctl.onchange = () => setSetting(s.key, s.type === 'number' ? Number(ctl.value) : ctl.value);
       }
       row.appendChild(ctl); box.appendChild(row);
+      // as on the car: a row with a "showWhen" comes up only with the settings it names
+      if (s.showWhen && !s.showWhen.some((w) => Object.keys(w).every((k) => m.values[k] === w[k]))) row.style.display = 'none';
     });
   }
   function setSetting(key, value) { fetch('/setting', { method: 'POST', body: JSON.stringify({ key, value }) }); }

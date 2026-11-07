@@ -1,6 +1,6 @@
 # EVA HUD 设计文档
 
-把手机上的 EVA 战斗座舱（`~/Projects/eva_hud_app`）的风格搬到 BMW iDrive 7 的挡风玻璃 HUD 上，只装在用户自己的车上。
+把手机上的 EVA 战斗座舱（[eva_hud_app](https://github.com/PenguinDukeYDAuto/eva_hud_app)，本地在 `~/Projects/eva_hud_app`）的风格搬到 BMW iDrive 7 的挡风玻璃 HUD 上，只装在用户自己的车上。
 
 **状态（2026-11-05）：** 车上是 0.2.1（HUD 和 EVA 仪表合并成一个 app，不向车辆写入）；源码是 0.3.0（三种模式、避开 BMW 车速的 HUD 布局、弹窗让路），只在模拟器验证过，还没装车。已装到用户的车（固件 P18_23w19.4-1-4）并运行，真实 cluster-render 接受全部图层。诊断读数、警报和可见范围的起点还没在实车上确认。实现见 `apps/eva_hud/`、`shared/eva_*.js` 和 `tools/eva_layout.py`，使用方法见 `apps/eva_hud/README.md`。写完本文后用户说“直接一路跑到头”，所以第 10 节的待定事项由实现者先取默认值，见下方各处说明。
 

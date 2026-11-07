@@ -32,6 +32,10 @@ const TYPES = {
     evacorners: ['lowerLeft'],
     evaword: ['font'],
     evacolon: ['font'],
+    evahex: ['r'],
+    evahazard: ['stripe'],
+    evaseven: ['margin'],
+    evarings: ['r0', 'step'],
 };
 const CLASSES = ['ambient', 'content', 'overlay', 'alert'];
 

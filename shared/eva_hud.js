@@ -5,7 +5,8 @@
  * cluster-render refuses a client's 9th layer ("too many layers"), so the whole app is 7 layers.
  *
  * The app has three modes, one setting ("screens"): HUD Only, Dash Only, HUD + Dash, each with its own layouts and its
- * own share of the renderer's memory. The drive mode never changes the mode: it only picks that mode's layout (HUD_ONLY).
+ * own share of the renderer's memory. The drive mode never changes the mode: in each mode, each drive mode picks what the HUD
+ * and the dash show, or that they show nothing ("hudSport", "dashSport", "bothHudSport", "bothDashSport").
  * BMW's own speed and limit sign can't be removed from the HUD, so the HUD draws no speed: its layouts leave that place
  * free and name BMW's speed.
  *
@@ -15,6 +16,9 @@
  *   evagear    image layer; the giant gear, or 出撃待命 / 予備 / REVERSE
  *   evacanvas  image layer; every other text, a rule and the MAGI markers, as "parts" sent by rectangle (eva_canvas.js)
  *   evasolo    effect layer; the throttle bar, which costs no pixel memory and next to no upload
+ *   evahex     effect layer; the opaque honeycomb ground of the dash's designs A and D
+ *   evahazard  effect layer; design B's opaque ground, with hazard stripes along its edges
+ *   evaseven   effect layer; design B's four seven-segment digits, which change by uniform and send no pixels
  *
  * HUD Only - Comfort and Eco Pro are the everyday ones, 3 layers: no gear, no revs, nothing that flashes.
  *   evacorners effect layer; four thin corners that open a little with speed, for one number
@@ -35,7 +39,7 @@
  * Units are fixed, as the owner wants them: pressure in PSI, power in HP, torque in Nm, temperatures in °C, speed in km/h.
  * Inside, pressures stay in bar: the alert limits are in bar and the menu shows them in PSI.
  *
- * Anything that looks like car data is car data, except under the kit's demo setting. SYNC is decoration.
+ * Anything that looks like car data is car data, except under the demo setting (shared/eva_demo.js). SYNC is decoration.
  */
 const HudApp = require('./hud');
 const textRaster = require('./hud_text');
@@ -47,6 +51,8 @@ const { AlertEngine } = require('./eva_alerts');
 const { EvaDiag } = require('./eva_diag');
 const { PopupWatch } = require('./eva_popups');
 const { Flicker } = require('./eva_flicker');
+const { judge } = require('./eva_magi');
+const EvaDemo = require('./eva_demo');
 
 // same strings as tools/eva_layout.py, which bakes their glyphs
 const ALERTS = {
@@ -57,15 +63,28 @@ const ALERTS = {
     afr: { en: 'AFR ANOMALY', jp: '空燃比異常', rgb: [118, 255, 3], label: '空燃比  AFR', status: 'AFR DEVIATION // 混合気異常', preview: 18.8 },
     multi: { en: 'MULTIPLE ALERTS', jp: '多重警報発令', rgb: [255, 0, 51], label: '同時発生', status: '', preview: 3 },
 };
-const LIVE_SETTINGS = ['demo', 'gmtOffset', 'motto', 'alertsOn', 'dismissAlert', 'alertPreview', 'limitKnock', 'limitFuel', 'limitAfrLow', 'limitAfrHigh', 'limitHeat', 'limitBoost'];
+const LIVE_SETTINGS = ['demo', 'gmtOffset', 'motto', 'dashCenter', 'alertsOn', 'dismissAlert', 'alertPreview', 'limitKnock', 'limitFuel', 'limitAfrLow', 'limitAfrHigh', 'limitHeat', 'limitBoost'];
 const POPUP_SLOT_HUD = 0x322;
+// the settings that choose what shows: a change redraws only if it changes that
+const LAYOUT_SETTINGS = /^(screens|(hud|dash|bothHud|bothDash)(Comfort|Sport|Eco))$/;
+const DRIVE_PROFILES = ['comfort', 'sport', 'eco'];
+const PROFILE_KEY = { comfort: 'Comfort', sport: 'Sport', eco: 'Eco' };     // the end of a setting's name
+const MENU_VERSION = 2;
 // The everyday layouts' big word and the line over it, for P, R and N: same strings as tools/eva_layout.py.
 const WORDS = {
     P: { text: '出撃待命', sub: 'SORTIE STANDBY // 拘束具固定' },
     R: { text: '緊急撤退', sub: 'RETREAT // 総員退避' },
     N: { text: '同期解除', sub: 'SYNCHRO CUT // 駆動系切離' },
 };
-// Comfort's lower right, picked in the menu: same strings as tools/eva_layout.py, which bakes their glyphs.
+// The line picked in the menu: same strings as tools/eva_layout.py, which bakes their glyphs.
+const MOTTO_EN = {
+    heaven: "GOD'S IN HIS HEAVEN // ALL'S RIGHT WITH THE WORLD",
+    project: 'HUMAN INSTRUMENTALITY',
+    angel: 'NO ANGEL DETECTED',
+    magi: 'MAGI UNANIMOUS',
+    field: 'A.T. FIELD',
+    run: "MUSTN'T RUN AWAY",
+};
 const MOTTOS = {
     heaven: ['神ハ天ニ在リ', '世ハ全テ事モ無シ'],
     project: ['人類補完計画', '第3段階 進行中'],
@@ -77,8 +96,19 @@ const MOTTOS = {
 const WORD_FADE_MS = 200;
 const COLON_BREATH_MS = 4000;   // in and out
 const COLON_LOW = 0.3;
+const HEX_ALPHA = 0.065;        // the map-area ground's lines
+// a MAGI vote, as colour roles and how much of a plate's inside it fills
+const TONE = { ok: 'ok', wait: 'amber', no: 'no' };
+const TONE_SOFT = { ok: 'okSoft', wait: 'waitSoft', no: 'noSoft' };
+const PLATE_FILL = { ok: 0.09, wait: 0.1, no: 0.22 };
+const VOTE = { ok: '承認', wait: '審議中', no: '否決' };
+const LAMP_INK = [16, 8, 2, 255];
 const COLON_STEPS = 20;         // of opacity: a send only when it reaches the next one, about 7 a second
 const OPEN_AT_KMH = 110;        // the everyday corners are fully open from here
+const BURN_FULL = 20;           // L/100km: the fuel use that fills design E1's bar and E2's rings
+const RINGS = 7;                // design E2's, the same as its shader
+const RINGS_HOT_FROM = 5;
+const SHOWS_BURN = ['e1', 'e2', 'e3'];   // the dash's designs with the fuel use on them
 // HUD Only's layout for each drive mode. Sport is the battle display; Comfort and Eco Pro are the everyday ones.
 const HUD_ONLY = { sport: 'hud_only_sport', comfort: 'hud_only_comfort', eco: 'hud_only_eco' };
 const RANGE_NONE = 4095;        // what the car sends with no range to give
@@ -109,9 +139,15 @@ class EvaHud extends HudApp {
         this.alertLayout = null;
         this.alertLayers = null;         // the alert's three layers, made at the first one
         this.normalHidden = false;
+        if (!(view && view.primary)) this._migrateMenu();
         this.popups = view && view.primary ? view.primary.popups : new PopupWatch({ log: this.log });
         this.givingWay = false;
         ctx.settings.onChange((key) => this._guard('setting ' + key, () => this._liveSetting(key)));
+        if (!(view && view.primary)) {       // one screen's job: the HUD's
+            this.menuShown = {};
+            ctx.settings.onChange(() => this._guard('menu', () => this._updateMenu()));
+            this._guard('menu', () => this._updateMenu());
+        }
     }
 
     /* ---------------- settings ---------------- */
@@ -125,20 +161,69 @@ class EvaHud extends HudApp {
     }
 
     _needsRebuild(key) {
-        if (key === 'screens') return this._layoutName() !== this.activeName;
+        if (LAYOUT_SETTINGS.test(key)) return this._layoutName() !== this.activeName;
         return LIVE_SETTINGS.indexOf(key) < 0;
     }
+
+    /** The drive mode whose choices apply: Comfort until the car has named one. */
+    _driveProfile() { return DRIVE_PROFILES.indexOf(this.driveMode) >= 0 ? this.driveMode : 'comfort'; }
 
     /** The app's mode: off, hud, dash, both or grid. */
     _screens() { return this.setting('screens'); }
 
-    _followsDriveMode() { return this._screens() === 'hud'; }
+    /** What the Mode and the drive mode pick from the menu, for 'hud', 'dash', or with HUD + Dash 'bothHud' or 'bothDash'. */
+    _picked(key) { return this.setting(key + PROFILE_KEY[this._driveProfile()]); }
+
+    /** The dash's design now: a design, or off. */
+    _dashDesign() { return this._picked(this._screens() === 'both' ? 'bothDash' : 'dash'); }
+
+    _followsDriveMode() { const s = this._screens(); return s === 'hud' || s === 'both'; }
 
     _layoutName() {
         const s = this._screens();
-        if (s === 'hud') return HUD_ONLY[this.driveMode] || HUD_ONLY.sport;
-        if (s === 'both') return 'eva';
+        if (s === 'hud' || s === 'both') {
+            const pick = this._picked(s === 'both' ? 'bothHud' : 'hud');
+            return pick === 'eva' || pick === 'off' ? pick : HUD_ONLY[pick] || HUD_ONLY.comfort;
+        }
         return s === 'grid' ? 'grid' : 'off';
+    }
+
+    /** Once, for settings from 0.5.0: it had one picture per Mode, or By drive mode. Its choices fill the rows that have one per drive mode. */
+    _migrateMenu() {
+        const st = this.ctx.settings, v = st.values;
+        if (v._menuV === MENU_VERSION) return;
+        const each = (key, value) => { if (value) DRIVE_PROFILES.forEach((m) => { v[key + PROFILE_KEY[m]] = value === 'follow' ? m : value; }); };
+        each('hud', v.hudDesign);
+        each('dash', v.dashDesign);
+        each('bothHud', v.bothHud);
+        each('bothDash', v.bothDash);
+        if (v.screens === 'drive') {
+            DRIVE_PROFILES.forEach((m) => {
+                const mode = v[m + 'Screens'] || 'hud', dash = v[m + 'Dash'] || 'whole';
+                v['bothHud' + PROFILE_KEY[m]] = mode === 'hud' ? m : mode === 'both' ? 'eva' : 'off';
+                v['bothDash' + PROFILE_KEY[m]] = mode === 'dash' || mode === 'both' ? dash : 'off';
+            });
+            v.screens = 'both';
+        }
+        st.set('_menuV', MENU_VERSION);
+    }
+
+    /** Which rows of the menu show, by their names on the screen: app.json's "showWhen" lists settings that bring a row up, any one set of them is enough. */
+    _menuRows() {
+        const out = {}, get = (k) => this.ctx.settings.get(k);
+        (this.ctx.spec.settings || []).filter((s) => s.showWhen).forEach((s) => {
+            out['SET_' + s.key.toUpperCase()] = s.showWhen.some((w) => Object.keys(w).every((k) => get(k) === w[k]));
+        });
+        return out;
+    }
+
+    _updateMenu() {
+        const rows = this._menuRows();
+        Object.keys(rows).forEach((name) => {
+            if (this.menuShown[name] === rows[name]) return;
+            this.menuShown[name] = rows[name];
+            this.ctx.ui.visible(name, rows[name]);
+        });
     }
 
     _layoutLabel(name) { return name === 'grid' ? 'Calibration grid' : 'EVA'; }
@@ -242,7 +327,7 @@ class EvaHud extends HudApp {
         const want = {
             knock: on && t.knock !== null, fuel: on && t.fuel !== null, afr: on && (t.afrLow !== null || t.afrHigh !== null),
             boost: Date.now() - this.boostFesAt >= 3000,
-            burn: this.activeName === HUD_ONLY.eco && !this._wordKey(),      // only Eco Pro shows it, and only on the move
+            burn: (this.activeName === HUD_ONLY.eco || !!(this.dash && SHOWS_BURN.indexOf(this.dash.activeName) >= 0)) && !this._wordKey(),      // only on the move
         };
         return want.knock || want.fuel || want.afr || want.boost || want.burn ? want : null;
     }
@@ -251,6 +336,16 @@ class EvaHud extends HudApp {
         const d = this.car.data();
         if (d.demo) return isNum(d.torque) && d.torque > 100 ? 0.4 + d.torque / 600 : 0.02;    // only ever under the demo setting
         return super._boost();
+    }
+
+    /* ---------------- the demo ---------------- */
+
+    /** The demo setting runs EVA's own round, which shows all there is to see, rather than the kit's long drive. */
+    _setupVehicleData() {
+        super._setupVehicleData();
+        this.car.sim = new EvaDemo();
+        this.car.setRedline(this.setting('redline'));
+        this.car.simData = this.car.sim.sample();
     }
 
     /* ---------------- tokens ---------------- */
@@ -321,9 +416,26 @@ class EvaHud extends HudApp {
     }
 
     _token(tok) {
+        if (tok.indexOf('mv:') === 0) {      // one character of the line, set vertically: its long vowel mark stands up, and a space takes no cell
+            const [, row, i] = tok.split(':');
+            const line = (MOTTOS[this.setting('motto')] || MOTTOS.heaven)[Number(row) - 1];
+            return Array.from(line.replace(/ /g, '').replace(/ー/g, '｜'))[Number(i)] || '';
+        }
         const a = this.alertKey ? ALERTS[this.alertKey] : null;
         switch (tok) {
             case 'statusline': return this._statusLine();
+            case 'b:title': return this.setting('dashCenter') === 'time' ? '現在時刻' : '活動限界まで';
+            case 'b:en': return this.setting('dashCenter') === 'time' ? 'LOCAL TIME' : 'ACTIVE RANGE REMAINING';
+            case 'b:unit': return this.setting('dashCenter') === 'time' ? '' : 'KM';
+            case 'b:power': return this._wordKey() === 'P' ? '外部電源' : '内部電源';
+            case 'b:powersub': return this._wordKey() === 'P' ? 'EXTERNAL' : 'INTERNAL';
+            case 'msub': { const k = this._wordKey(); return k ? WORDS[k].sub : MOTTO_EN[this.setting('motto')] || MOTTO_EN.heaven; }
+            case 'gearshort': {
+                const k = this._wordKey(), st = this._gearState();
+                return k || (st.kind === 'digit' ? st.text : st.kind === 'ready' ? 'D' : '-');
+            }
+            case 'magi:word': return this._magi().word;
+            case 'magi:sub': return this._magi().sub;
             case 'wordsub': { const k = this._wordKey(); return k ? WORDS[k].sub : ''; }
             case 'motto1': return (MOTTOS[this.setting('motto')] || MOTTOS.heaven)[0];
             case 'motto2': return (MOTTOS[this.setting('motto')] || MOTTOS.heaven)[1];
@@ -370,8 +482,8 @@ class EvaHud extends HudApp {
     /* ---------------- normal layers ---------------- */
 
     _create(w) {
-        if (['evaseg', 'evaframe', 'evagear', 'evacanvas', 'evasolo', 'evacorners', 'evaword', 'evacolon'].indexOf(w.type) < 0) { super._create(w); return; }
-        const base = { target: this.target, klass: w.class || 'content', z: w.z || 0, x: w.x, y: w.y, w: w.w, h: w.h };
+        if (['evaseg', 'evaframe', 'evagear', 'evacanvas', 'evasolo', 'evacorners', 'evaword', 'evacolon', 'evahex', 'evahazard', 'evaseven', 'evarings'].indexOf(w.type) < 0) { super._create(w); return; }
+        const base = Object.assign({ target: this.target, klass: w.class || 'content', z: w.z || 0, x: w.x, y: w.y, w: w.w, h: w.h }, this._layerFields());
         const image = ['evagear', 'evacanvas', 'evaword', 'evacolon'].indexOf(w.type) >= 0;
         if (w.type === 'evaword') Object.assign(base, { sx: w.sx, sy: w.sy, opacity: 0 });
         const ref = image ? this.client.image(Object.assign({ iw: w.w, ih: w.h }, base)) : this.client.effect(Object.assign({ fs: shaders[w.type] }, base));
@@ -397,6 +509,28 @@ class EvaHud extends HudApp {
             this.client.uniform(ref, 'u_inset', [w.inset || 4]);
             this.client.uniform(ref, 'u_corner', [w.corner || 18]);
             this.client.uniform(ref, 'u_weight', [w.weight || 1]);
+            this.client.uniform(ref, 'u_lineW', [w.lineW || 2 * (w.weight || 1)]);
+        } else if (w.type === 'evahex') {
+            this.client.uniform(ref, 'u_size', [w.w, w.h]);
+            this.client.uniform(ref, 'u_color', rgb01(t.fg));
+            this.client.uniform(ref, 'u_cell', [w.r]);
+            this.client.uniform(ref, 'u_alpha', [this.normalHidden ? 0 : this._hexAlpha(w)]);
+        } else if (w.type === 'evahazard') {
+            this.client.uniform(ref, 'u_size', [w.w, w.h]);
+            this.client.uniform(ref, 'u_h', [w.stripe]);
+            this.client.uniform(ref, 'u_alpha', [this.normalHidden ? 0 : 1]);
+        } else if (w.type === 'evaseven') {
+            this.client.uniform(ref, 'u_size', [w.w, w.h]);
+            this.client.uniform(ref, 'u_color', rgb01(t.fg));
+            this.client.uniform(ref, 'u_off', [0.07]);
+            this.client.uniform(ref, 'u_margin', [w.margin]);
+        } else if (w.type === 'evarings') {
+            this.client.uniform(ref, 'u_size', [w.w, w.h]);
+            this.client.uniform(ref, 'u_color', rgb01(t.fg));
+            this.client.uniform(ref, 'u_hot', rgb01(t.amber));
+            this.client.uniform(ref, 'u_hotFrom', [RINGS_HOT_FROM]);
+            this.client.uniform(ref, 'u_r0', [w.r0]);
+            this.client.uniform(ref, 'u_step', [w.step]);
         } else if (w.type === 'evasolo') {
             this.client.uniform(ref, 'u_size', [w.w, w.h]);
             this.client.uniform(ref, 'u_color', rgb01(t.fg));
@@ -425,7 +559,47 @@ class EvaHud extends HudApp {
         else if (type === 'evacorners') this._updateCorners(x, force);
         else if (type === 'evaword') this._updateWord(x, now, force);
         else if (type === 'evacolon') this._updateColon(x, now);
-        else if (type !== 'evaframe') super._update(x, now, force);
+        else if (type === 'evaseven') this._updateSeven(x, now, force);
+        else if (type === 'evahazard') this._updateHazard(x, force);
+        else if (type === 'evarings') this._updateRings(x, force);
+        else if (type !== 'evaframe' && type !== 'evahex') super._update(x, now, force);
+    }
+
+    /** Design B's middle: the range with its tenths, or the time with its colon beating. Blank digits show only their dim segments. */
+    _updateSeven(x, now, force) {
+        const clock = !x.w.rangeOnly && this.setting('dashCenter') === 'time';
+        let digits, on;
+        if (clock) {
+            digits = this._token('time').replace(':', '').split('').map(Number);
+            on = Math.floor(now / 1000) % 2 === 0 ? 1 : 0;
+        } else {
+            const r = this._range(), n = isNum(r) ? String(Math.min(999, Math.max(0, Math.round(r)))) : null;
+            digits = n ? [n.length > 2 ? Number(n[n.length - 3]) : -1, n.length > 1 ? Number(n[n.length - 2]) : -1, Number(n[n.length - 1]), 0] : [-1, -1, -1, -1];
+            on = n ? 1 : 0;
+        }
+        const key = digits.join() + '|' + on + '|' + clock;
+        if (!force && key === x.last) return;
+        x.last = key;
+        this.client.uniform(x.ref, 'u_digits', digits);
+        this.client.uniform(x.ref, 'u_sepAfter', [clock ? 1 : 2]);
+        this.client.uniform(x.ref, 'u_colon', [clock ? 1 : 0]);
+        this.client.uniform(x.ref, 'u_sepOn', [on]);
+    }
+
+    /** Design B's stripes: its colour, or MAGI's red while it rejects a temperature. */
+    _updateHazard(x, force) {
+        const m = this._magi(), hot = m.melchior === 'no' || m.balthasar === 'no';
+        if (!force && hot === x.last) return;
+        x.last = hot;
+        this.client.uniform(x.ref, 'u_stripe', rgb01(this.theme[hot ? 'no' : 'fg']));
+    }
+
+    /** Design E2's rings: how many are lit, out of RINGS. None with no fuel use to show. */
+    _updateRings(x, force) {
+        const b = this._burn(), lit = isNum(b) ? Math.max(1, Math.ceil(Math.min(1, b / BURN_FULL) * RINGS)) : 0;
+        if (!force && lit === x.last) return;
+        x.last = lit;
+        this.client.uniform(x.ref, 'u_lit', [lit]);
     }
 
     _updateSolo(x, force) {
@@ -478,6 +652,7 @@ class EvaHud extends HudApp {
     }
 
     _updateSeg(x, now, force) {
+        if (x.w.source === 'burn') { this._updateBurnBar(x, force); return; }
         const rpm = this._raw('rpm'), segs = x.w.segments || 28;
         const v = isNum(rpm) ? Math.min(1, Math.max(0, rpm / this._barMax())) : 0;
         const q = Math.round(v * segs * 2) / (segs * 2);
@@ -489,8 +664,24 @@ class EvaHud extends HudApp {
         this.client.uniform(x.ref, 'u_strobe', [strobe ? 1 : 0]);
     }
 
+    /** Design E1's bar: the fuel use, in whole segments. */
+    _updateBurnBar(x, force) {
+        const b = this._burn(), segs = x.w.segments || 28;
+        const q = isNum(b) ? Math.round(Math.min(1, b / BURN_FULL) * segs) / segs : 0;
+        if (!force && q === x.last) return;
+        x.last = q;
+        this.client.uniform(x.ref, 'u_value', [q]);
+        this.client.uniform(x.ref, 'u_strobe', [0]);
+    }
+
+    /** What the gear's layer shows. A layout with "words" has the owner's words in P, R and N, the same as the HUD's big word. */
+    _gearFor(w) {
+        const k = w.words ? this._wordKey() : null;
+        return k ? { kind: 'word', key: k, text: WORDS[k].text } : this._gearState();
+    }
+
     _updateGear(x, now) {
-        const st = this._gearState();
+        const st = this._gearFor(x.w);
         const hot = st.kind === 'reverse' || (st.kind === 'digit' && this._shift().now);
         const key = st.kind + st.text + (hot ? 'h' : '');
         if (key !== x.last) {
@@ -520,17 +711,19 @@ class EvaHud extends HudApp {
         const pre = w.fontPrefix || '';
         const fonts = { digit: pre + 'gear', ready: pre + 'gearjp', reverse: pre + 'gearrev' };
         let m, font;
-        if (st.kind === 'standby') {
+        if (st.kind === 'standby' || st.kind === 'word') {
             font = pre + 'gearjp';
-            const half = textRaster.loadFont(font).metrics.cellHeight / 2 + 2;
-            m = line('出撃', font, H / 2 - half);
-            const b = line('待命', font, H / 2 + half);
+            const half = w.wordPitch ? w.wordPitch / 2 : textRaster.loadFont(font).metrics.cellHeight / 2 + 2;
+            const rows = st.kind === 'word' ? st.text : '出撃待命';
+            m = line(rows.slice(0, 2), font, H / 2 - half);
+            const b = line(rows.slice(2), font, H / 2 + half);
             for (let i = 0; i < m.length; i++) if (b[i] > m[i]) m[i] = b[i];
         } else {
             font = fonts[st.kind];
             m = line(st.text, font, H / 2);
         }
-        return textRaster.tint(m, W, H, { color: hot ? t.hot : t.fg, glow: t.glow, font });
+        const c = st.kind === 'word' && st.key === 'R' ? t.amber : hot ? t.hot : t.fg;
+        return textRaster.tint(m, W, H, { color: c, glow: t.glow, font });
     }
 
     /* ---------------- the text canvas ---------------- */
@@ -551,6 +744,9 @@ class EvaHud extends HudApp {
     /** What a part should look like now, as a string: the same string is not painted again. */
     _partLook(p, now) {
         if (p.type === 'magi') return this._magiOk(p.source, now) ? 'on' : 'off';
+        if (p.type === 'plate') return 'plate|' + this._magi()[p.magi];
+        if (p.type === 'wires') return color(this.theme, p.color).join();
+        if (p.type === 'lamp') return 'lamp|' + (this._lampOn(p) ? 'on' : 'off') + (p.when === 'always' ? '|' + this._resolve(p.top) + (p.sub ? '|' + this._resolve(p.sub) : '') : '');
         if (p.type === 'logo') {
             if (p.flicker && !p.flickerNow) p.flickerNow = new Flicker(p.flicker);
             return color(this.theme, p.flickerNow && p.flickerNow.on(now) ? p.flicker.color : p.color).join();
@@ -558,12 +754,19 @@ class EvaHud extends HudApp {
         let role = p.color || 'fg';
         if (p.hotWhen && this._shift()[p.hotWhen]) role = 'hot';
         if (p.warnWhen && this._warn(p.warnWhen)) role = 'amber';
+        if (p.magiTone) role = (p.magiTone === 'soft' ? TONE_SOFT : TONE)[this._magi().tone];
+        if (p.magiHot && this._magi()[p.magiHot] === 'no') role = 'no';
         const c = color(this.theme, role).join();
-        return p.type === 'rule' ? c : c + '|' + this._resolve(p.text);
+        if (p.type === 'rule') return c;
+        const hidden = (p.driving && this._wordKey()) || (p.parked && !this._wordKey());     // these give way to, or come with, the big word
+        return c + '|' + (hidden ? '' : this._resolve(p.text));
     }
 
     _partPixels(p, look) {
         if (p.type === 'magi') return this._paintMagi(p, look === 'on');
+        if (p.type === 'plate') return this._paintPlate(p, look.split('|')[1]);
+        if (p.type === 'wires') return this._paintWires(p, look.split(',').map(Number));
+        if (p.type === 'lamp') return this._paintLamp(p, look.split('|')[1] === 'on');
         if (p.type === 'logo') return this._paintLogo(p, look.split(',').map(Number));
         const cut = look.indexOf('|');
         const c = (cut < 0 ? look : look.slice(0, cut)).split(',').map(Number);
@@ -572,8 +775,9 @@ class EvaHud extends HudApp {
             for (let o = 0; o < buf.length; o += 4) { buf[o] = c[0]; buf[o + 1] = c[1]; buf[o + 2] = c[2]; buf[o + 3] = c[3]; }
             return buf;
         }
+        const by = p.byMotto && (p.byMotto[this.setting('motto')] || p.byMotto.heaven);     // a line sized to fill its row
         return textRaster.drawText(p.w, p.h, look.slice(cut + 1), {
-            font: p.font, color: c, align: p.align, spacing: p.spacing, glow: p.glow ? this.theme.glow : 0, x: p.textX, offsetY: p.offsetY,
+            font: by ? by.font : p.font, color: c, align: p.align, spacing: p.spacing, glow: p.glow ? this.theme.glow : 0, x: p.textX, offsetY: by ? by.offsetY : p.offsetY,
         });
     }
 
@@ -614,7 +818,92 @@ class EvaHud extends HudApp {
         return buf;
     }
 
+    /** MAGI's sortie check on the dash's design A: see eva_magi.js. */
+    _magi() {
+        const d = this.car.data();
+        return judge({ oil: d.oil, water: d.coolant, driving: !this._wordKey() && this._gearState().kind !== 'standby', overRev: this._shift().now });
+    }
+
+    /** A shape with cut corners, in the colour c: a 2 px border, and inside it that colour at the alpha "fill". */
+    _cutCorners(p, c, fill) {
+        const W = p.w, H = p.h, cut = p.corner, r2 = Math.SQRT1_2, buf = Buffer.alloc(W * H * 4);
+        for (let y = 0; y < H; y++) {
+            for (let x = 0; x < W; x++) {
+                const l = x + 0.5, r = W - x - 0.5, u = y + 0.5, b = H - y - 0.5;
+                const edge = Math.min(l, r, u, b, (l + u - cut) * r2, (r + u - cut) * r2, (l + b - cut) * r2, (r + b - cut) * r2);
+                if (edge <= 0) continue;
+                const o = (y * W + x) * 4, a = (edge < 2 ? 1 : fill) * Math.min(1, edge);
+                buf[o] = c[0]; buf[o + 1] = c[1]; buf[o + 2] = c[2]; buf[o + 3] = Math.round(a * 255);
+            }
+        }
+        return buf;
+    }
+
+    /** A text over what's there in buf, centred across the part. */
+    _inkOver(buf, p, text, c, font, offsetY) {
+        const m = textRaster.mask(p.w, p.h, text, { font, align: 'center', offsetY });
+        for (let i = 0; i < m.length; i++) {
+            if (!m[i]) continue;
+            const o = i * 4, sa = m[i] / 255, da = buf[o + 3] / 255, oa = sa + da * (1 - sa);
+            for (let k = 0; k < 3; k++) buf[o + k] = Math.round((c[k] * sa + buf[o + k] * da * (1 - sa)) / oa);
+            buf[o + 3] = Math.round(oa * 255);
+        }
+    }
+
+    /** One vote: a plate with cut corners, its name, its vote and what it watches. */
+    _paintPlate(p, state) {
+        const t = this.theme, c = t[TONE[state]], voteFont = state === 'wait' ? 'wait' : 'ok';
+        const buf = this._cutCorners(p, c, PLATE_FILL[state]);
+        this._inkOver(buf, p, p.name, c, p.fonts.name, p.offsets.name);
+        this._inkOver(buf, p, VOTE[state], c, p.fonts[voteFont], p.offsets[voteFont]);
+        this._inkOver(buf, p, p.watch, t[TONE_SOFT[state]], p.fonts.watch, p.offsets.watch);
+        return buf;
+    }
+
+    /** Design B's lamps: the car on external power in P, internal otherwise, and the drive mode. */
+    _lampOn(p) {
+        if (p.when === 'always') return true;
+        if (p.when === 'parked') return this._wordKey() === 'P';
+        if (p.when === 'moving') return this._wordKey() !== 'P';
+        return this.driveMode === p.when;
+    }
+
+    /** A lamp: filled with dark text while it is on, only a faint outline while it is off. */
+    _paintLamp(p, on) {
+        const t = this.theme, ink = on ? LAMP_INK : t.wire;
+        const buf = this._cutCorners(p, on ? t[p.tone] : t.faint, on ? 1 : 0);
+        this._inkOver(buf, p, this._resolve(p.top), ink, p.fonts.top, p.offsets.top);
+        if (p.sub) this._inkOver(buf, p, this._resolve(p.sub), ink, p.fonts.sub, p.offsets.sub);
+        return buf;
+    }
+
+    /** Thin lines between the plates. Their coordinates may run off the part: only what's inside it is drawn. */
+    _paintWires(p, c) {
+        const buf = Buffer.alloc(p.w * p.h * 4);
+        for (let y = 0; y < p.h; y++) {
+            for (let x = 0; x < p.w; x++) {
+                let near = Infinity;
+                p.lines.forEach((l) => {
+                    const dx = l[2] - l[0], dy = l[3] - l[1], u = Math.max(0, Math.min(1, ((x + 0.5 - l[0]) * dx + (y + 0.5 - l[1]) * dy) / (dx * dx + dy * dy)));
+                    near = Math.min(near, Math.hypot(x + 0.5 - l[0] - u * dx, y + 0.5 - l[1] - u * dy));
+                });
+                if (near >= 1.5) continue;
+                const o = (y * p.w + x) * 4;
+                buf[o] = c[0]; buf[o + 1] = c[1]; buf[o + 2] = c[2]; buf[o + 3] = Math.round(Math.min(1, 1.5 - near) * c[3]);
+            }
+        }
+        return buf;
+    }
+
     /* ---------------- alerts ---------------- */
+
+    /** The alert the demo's round has reached, as the rules would show it: only ever under the demo setting. */
+    _demoAlert(now) {
+        const id = this.car.sim.alertAt(now);
+        if (!id) return null;
+        if (id === 'multi') return { kind: 'multi', ids: ['knock', 'heat', 'fuel'], count: 3 };
+        return { kind: 'single', id, value: ALERTS[id].preview };
+    }
 
     /** What should show now: a preview while parked, else what the rules say. */
     _alertNow(now) {
@@ -624,7 +913,8 @@ class EvaHud extends HudApp {
             if (preview === 'multi') return { kind: 'multi', ids: ['knock', 'heat', 'fuel'], count: 3, preview: true };
             return { kind: 'single', id: preview, value: ALERTS[preview].preview, preview: true };
         }
-        if (d.demo || this.setting('alertsOn') === false) return null;
+        if (this.setting('alertsOn') === false) return null;
+        if (d.demo) return this._demoAlert(now);
         const values = { knock: this.readings.knock, fuel: this.readings.fuel, afr: this.readings.afr };
         if (isNum(d.coolant)) values.heat = { v: d.coolant, at: this.car.lastCar };
         const boost = this._boost();
@@ -632,10 +922,16 @@ class EvaHud extends HudApp {
         return this.alerts.update(now, { rpm: d.rpm, pedal: this._pedal(), values });
     }
 
+    _hexAlpha(w) { return w.lines === 0 ? 0 : HEX_ALPHA; }
+
     _setNormalVisible(on) {
         if (this.normalHidden === !on) return;
         this.normalHidden = !on;
-        this.widgets.forEach((x) => { if (!x.w.keepInAlert) this.client.set(x.ref, { visible: on ? 1 : 0 }); });
+        this.widgets.forEach((x) => {
+            if (!x.w.keepInAlert) this.client.set(x.ref, { visible: on ? 1 : 0 });
+            if (x.w.type === 'evahex') this.client.uniform(x.ref, 'u_alpha', [on ? this._hexAlpha(x.w) : 0]);     // an alert's ground is plain black
+            if (x.w.type === 'evahazard') this.client.uniform(x.ref, 'u_alpha', [on ? 1 : 0]);
+        });
     }
 
     /** The alert layout with this alert's rows, or null: a bad file must not leave the HUD blank. */
@@ -658,7 +954,7 @@ class EvaHud extends HudApp {
     /** Three layers, made at the first alert and kept hidden after it: the text, and the title in colour and white. */
     _makeAlertLayers() {
         const L = this.alertLayout, t = L.title, w = L.widgets[0];
-        const base = (r) => ({ target: this.target, klass: 'alert', x: r.x, y: r.y, w: r.w, h: r.h, iw: r.w, ih: r.h });
+        const base = (r) => Object.assign({ target: this.target, klass: 'alert', x: r.x, y: r.y, w: r.w, h: r.h, iw: r.w, ih: r.h }, this._layerFields());
         this.alertLayers = {
             canvas: { w, ref: this.client.image(Object.assign({ z: 7 }, base(w))), canvas: this._textCanvas(w.parts) },
             colour: this.client.image(Object.assign({ z: 5 }, base(t))),
@@ -709,6 +1005,9 @@ class EvaHud extends HudApp {
         l.op = op;
         this.client.set(l.white, { opacity: op });
     }
+
+    /** Fields every layer of this screen asks for, on top of the usual ones. */
+    _layerFields() { return {}; }
 
     /* ---------------- BMW's pop-ups ---------------- */
 

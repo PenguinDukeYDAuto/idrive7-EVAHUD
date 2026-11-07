@@ -108,7 +108,7 @@ function startApp(values, opts) {
     const text = hu.ui.text;
     hu.ui.text = (n, t, row, cell) => { if (n === 'STATUS' && !row) status = String(t); return text(n, t, row, cell); };
     hu.start();
-    return { hu, lines, watches, status: () => status, hud: () => FakeClient.all[0], dash: () => FakeClient.all[1], set: (k, v) => hu.settings.set(k, v) };
+    return { hu, lines, watches, status: () => status, hud: () => FakeClient.all[0], dash: () => FakeClient.all[1], set: (k, v) => { const many = /^(dashDesign|bothDash)$/.test(k) ? ['Comfort', 'Sport', 'Eco'].map((m) => (k === 'dashDesign' ? 'dash' : 'bothDash') + m) : [k]; many.forEach((n) => hu.settings.set(n, v)); } };
 }
 
 let popupLog = null;
@@ -167,7 +167,7 @@ const tests = {
         assert.ok(a.hud().layers.size <= 8 && a.dash().layers.size <= 8);
     },
     async 'HUD only draws the HUD, with its own richer layout'() {
-        const a = startApp({ screens: 'hud' });
+        const a = startApp({ screens: 'hud', hudComfort: 'sport' });
         await wait(150);
         assert.strictEqual(a.dash().layers.size, 0);
         assert.strictEqual(a.hud().layers.size, 5);
@@ -192,7 +192,7 @@ const tests = {
         assert.strictEqual(a.dash().layers.size, 0);
     },
     async 'the mode can change while running, and the HUD changes layout with it'() {
-        const a = startApp({ screens: 'both' });
+        const a = startApp({ screens: 'both', hudComfort: 'sport' });
         await wait(150);
         a.set('screens', 'hud');
         await wait(100);
@@ -240,11 +240,11 @@ const tests = {
             }
         }
     },
-    async 'in HUD only, each drive mode has its own layout, and Sport stands in until the car says'() {
+    async 'in HUD only, each drive mode has its own layout, and Comfort stands in until the car says'() {
         const a = startApp({ screens: 'hud' });
         await wait(150);
         const hud = counts.evas[0];
-        assert.strictEqual(hud.activeName, 'hud_only_sport');
+        assert.strictEqual(hud.activeName, 'hud_only_comfort');
         for (const [mode, name] of [['COMFORT', 'hud_only_comfort'], ['ECO_PRO', 'hud_only_eco'], ['SPORT', 'hud_only_sport']]) {
             drive(a, mode);
             await wait(150);
@@ -898,7 +898,7 @@ const tests = {
         assert.ok(!/DASH[^/]*\(Sport\)/.test(a.status()), a.status());
     },
     async 'the instruments follow the car'() {
-        const a = startApp({ screens: 'hud' });
+        const a = startApp({ screens: 'hud', hudComfort: 'sport' });
         await wait(300);
         const u = a.hud().uniformsOf((l) => l.fs && /u_pedal/.test(l.fs));
         assert.ok(u.u_pedal && u.u_pedal.length === 1, 'no pedal');
@@ -909,7 +909,7 @@ const tests = {
     async 'the NERV mark reaches the HUD alone, in red, once, without an error'() {
         const part = JSON.parse(fs.readFileSync(path.join(ROOT, 'apps/eva_hud/hud/layouts/hud_only_sport.json'), 'utf8'))
             .widgets.find((w) => w.type === 'evacanvas').parts.find((p) => p.id === 'logo');
-        const a = startApp({ screens: 'hud' });
+        const a = startApp({ screens: 'hud', hudComfort: 'sport' });
         await wait(800);
         const logos = a.hud().sent.filter((w) => {
             const r = w.rects && w.rects[0];
@@ -1074,7 +1074,7 @@ const tests = {
         const layout = JSON.parse(fs.readFileSync(path.join(ROOT, 'apps/eva_hud/hud/layouts/hud_only_sport.json'), 'utf8'));
         const canvas = layout.widgets.find((w) => w.type === 'evacanvas'), part = canvas.parts.find((p) => p.id === 'logo');
         part.flicker.gapMs = [100, 100];        // a layout in the data folder replaces the shipped one: no 20 s wait here
-        const a = startApp({ screens: 'hud' }, { layouts: { hud_only_sport: layout } });
+        const a = startApp({ hudComfort: 'sport', screens: 'hud' }, { layouts: { hud_only_sport: layout } });
         await wait(1200);
         const mine = a.hud().sent.filter((w) => {
             const r = w.rects && w.rects[0];
@@ -1133,6 +1133,670 @@ const tests = {
         assert.strictEqual(hud._token('a:deg'), '°C');
         assert.strictEqual(hud.alerts.thresholds.boost, 2, 'the limit is in bar');
         assert.ok(a);
+    },
+    async 'the dash stays on the whole cluster unless the menu picks design A'() {
+        const a = startApp({ screens: 'dash' });
+        await wait(150);
+        assert.deepStrictEqual(a.dash().targets(), ['panel']);
+    },
+    async 'design A draws under BMW\'s gauges on the map target, asking for the slot and leaving BMW\'s turn box alone'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a' });
+        await wait(150);
+        assert.deepStrictEqual(a.dash().targets(), ['map']);
+        assert.strictEqual(a.dash().layers.size, 5);
+        assert.deepStrictEqual(a.dash().refused, []);
+        assert.strictEqual(a.hud().layers.size, 0);
+        Array.from(a.dash().layers.values()).forEach((l) => {
+            assert.strictEqual(l.contend, 1, 'a map layer must contend to take the slot from the stock map');
+            assert.strictEqual(l.guide_hold, 0, 'it should not hold another slot');
+        });
+    },
+    async 'the whole cluster asks for nothing new'() {
+        const a = startApp({ screens: 'dash' });
+        await wait(150);
+        Array.from(a.dash().layers.values()).forEach((l) => {
+            assert.strictEqual(l.contend, undefined);
+            assert.strictEqual(l.guide_hold, undefined);
+        });
+    },
+    async 'changing the design redraws the dash on its new target and leaves the HUD alone'() {
+        const a = startApp({ screens: 'both' });
+        await wait(SETTLE_MS);
+        const hudLayers = Array.from(a.hud().layers.keys()).join();
+        a.set('bothDash', 'a');
+        await wait(200);
+        assert.deepStrictEqual(a.dash().targets(), ['map']);
+        assert.strictEqual(a.dash().layers.size, 5);
+        assert.strictEqual(Array.from(a.hud().layers.keys()).join(), hudLayers, 'the HUD was redrawn');
+        a.set('bothDash', 'whole');
+        await wait(200);
+        assert.deepStrictEqual(a.dash().targets(), ['panel']);
+        assert.deepStrictEqual(a.dash().refused, []);
+    },
+    async 'turning the dash off after design A leaves nothing behind'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a' });
+        await wait(SETTLE_MS);
+        a.set('screens', 'hud');
+        await wait(200);
+        assert.strictEqual(a.dash().layers.size, 0);
+        assert.ok(/cluster/.test(counts.evas[1].statusText()), counts.evas[1].statusText());
+    },
+    async 'design A shows all six alerts on the map target, with nothing refused'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a' });
+        await wait(SETTLE_MS);
+        for (const id of ['knock', 'fuel', 'afr', 'heat', 'boost', 'multi']) {
+            a.set('alertPreview', id);
+            await wait(150);
+            assert.strictEqual(a.dash().alertLayers().length, 3, id);
+            assert.deepStrictEqual(a.dash().targets(), ['map'], id);
+            assert.strictEqual(counts.evas[1].alertLayout.name, 'EVA centre alert', id);
+        }
+        assert.deepStrictEqual(a.dash().refused, []);
+        assert.ok(a.dash().layers.size <= 8, a.dash().layers.size + ' layers');
+        assert.deepStrictEqual(a.lines.filter((l) => /^ERROR/.test(l)).map((l) => l.slice(0, 160)), []);
+    },
+    async 'design A keeps its images through an alert, and sends them only once'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], gearRef = dash.widgets.get('gear').ref, textRef = dash.widgets.get('text').ref;
+        a.set('alertPreview', 'heat');
+        await wait(200);
+        assert.ok(a.dash().layers.has(gearRef) && a.dash().layers.has(textRef), 'an image was dropped for the alert');
+        assert.strictEqual(a.dash().layers.size, 8);
+        const before = a.dash().sent.length;
+        a.set('alertPreview', 'off');
+        await wait(300);
+        assert.strictEqual(a.dash().alertLayers().length, 0);
+        assert.strictEqual(a.dash().shown().length, 5);
+        assert.strictEqual(a.dash().layers.size, 8, 'the alert\'s layers stay, hidden, for the next one');
+        const big = a.dash().sent.slice(before).reduce((n, s) => n + s.px.length, 0);
+        assert.ok(big < 200 * 1024, big + ' bytes sent when the alert ended');
+        const sent = a.dash().sent.length;
+        a.set('alertPreview', 'heat');
+        await wait(200);
+        const again = a.dash().sent.slice(sent).reduce((n, s) => n + s.px.length, 0);
+        const t = dash.alertLayout.title;
+        assert.strictEqual(a.dash().alertLayers().length, 3);
+        assert.ok(again >= 0 && again <= 2 * t.w * t.h * 4 + 700 * 1024, again + ' bytes for the same alert again');
+    },
+    async 'design A\'s hex pattern goes dark in an alert and comes back'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a' });
+        await wait(SETTLE_MS);
+        const hex = (l) => l.fs && /u_cell/.test(l.fs), lit = () => a.dash().uniformsOf(hex).u_alpha[0];
+        const on = lit();
+        assert.ok(on > 0, 'the pattern is dark');
+        a.set('alertPreview', 'heat');
+        await wait(200);
+        assert.ok(a.dash().shown().some(hex), 'the ground went away in the alert');
+        assert.strictEqual(lit(), 0);
+        a.set('alertPreview', 'off');
+        await wait(200);
+        assert.strictEqual(lit(), on);
+    },
+    async 'a BMW pop-up does not hide a centre design: BMW draws over the map target'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a', demo: 'off' });
+        await wait(SETTLE_MS);
+        const shown = a.dash().shown().length;
+        popup('202', true);
+        await wait(250);
+        assert.strictEqual(a.dash().shown().length, shown);
+        assert.strictEqual(counts.evas[1].givingWay, false);
+    },
+    async 'design A\'s gear frame shows the owner\'s words in P, R and N, and a digit on the move'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 60, stage: 'D', gear: 3, rpm: 2000, oil: 100, coolant: 90 };
+        dash.car.data = () => data;
+        const x = dash.widgets.get('gear'), state = () => dash._gearFor(x.w);
+        assert.deepStrictEqual([state().kind, state().text], ['digit', '3']);
+        [['P', '出撃待命'], ['R', '緊急撤退'], ['N', '同期解除']].forEach(([stage, word]) => {
+            data.stage = stage;
+            assert.deepStrictEqual([state().kind, state().text], ['word', word], stage);
+        });
+        data.stage = 'R';
+        await wait(150);
+        assert.strictEqual(imageOf(a.dash(), x.ref).compare(dash._paintGear(x.w, state(), false)), 0, 'the service does not hold the word');
+        assert.strictEqual(x.op, 1, 'a word should hold still, not breathe');
+    },
+    async 'a digit is drawn in the middle of design A\'s frame'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], w = dash.widgets.get('gear').w;
+        ['3', '6', '8'].forEach((text) => {
+            const px = dash._paintGear(w, { kind: 'digit', text }, false);
+            let top = w.h, bottom = -1;
+            for (let y = 0; y < w.h; y++) for (let i = 0; i < w.w; i++) if (px[(y * w.w + i) * 4 + 3] > 200) { top = Math.min(top, y); bottom = Math.max(bottom, y); }
+            assert.ok(Math.abs((top + bottom) / 2 - w.h / 2) <= 8, text + ' ink runs ' + top + ' to ' + bottom + ' of ' + w.h);
+        });
+    },
+    async 'other designs keep their gear words as they were'() {
+        const a = startApp({ screens: 'dash', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 0, stage: 'R', gear: -1, rpm: 800 };
+        dash.car.data = () => data;
+        const x = dash.widgets.get('gear');
+        assert.strictEqual(dash._gearFor(x.w).kind, 'reverse');
+        data.stage = 'P'; data.gear = 0;
+        assert.strictEqual(dash._gearFor(x.w).kind, 'standby');
+    },
+    async 'MAGI follows the car: warming up, unanimous, then rejecting with its reason'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 60, stage: 'D', gear: 3, rpm: 2000, oil: 42, coolant: 48 };
+        dash.car.data = () => data;
+        const say = () => [dash._token('magi:word'), dash._token('magi:sub')];
+        assert.deepStrictEqual(say(), ['審議中', 'DELIBERATING // 暖機中']);
+        data.oil = 100; data.coolant = 90;
+        assert.deepStrictEqual(say(), ['全会一致', 'UNANIMOUS // 出撃承認']);
+        data.oil = 132;
+        assert.deepStrictEqual(say(), ['否決', 'REJECTED // 油温上昇']);
+        data.oil = 100; data.stage = 'P';
+        assert.deepStrictEqual(say(), ['審議中', 'DELIBERATING // 待機中']);
+    },
+    async 'a MAGI plate is painted only when its vote changes, and differently for each vote'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 60, stage: 'D', gear: 3, rpm: 2000, oil: 100, coolant: 90 };
+        dash.car.data = () => data;
+        await wait(400);
+        const textRef = dash.widgets.get('text').ref, plate = dash.widgets.get('text').w.parts.find((p) => p.id === 'plate_m');
+        const looks = ['ok', 'wait', 'no'].map((v) => dash._partPixels(plate, 'plate|' + v));
+        assert.ok(looks[0].compare(looks[1]) !== 0 && looks[1].compare(looks[2]) !== 0, 'the votes look the same');
+        looks.forEach((px) => assert.strictEqual(px.length, plate.w * plate.h * 4));
+        const count = () => a.dash().sent.filter((s) => s.ref === textRef && s.rects && s.rects[0].x >= plate.x && s.rects[0].x < plate.x + plate.w && s.rects[0].y >= plate.y && s.rects[0].y < plate.y + plate.h).length;
+        const n = count();
+        await wait(500);
+        assert.strictEqual(count(), n, 'a steady vote was sent again');
+        data.oil = 132;
+        await wait(400);
+        assert.strictEqual(count(), n + 1, 'a new vote should send one rectangle');
+    },
+    async 'the oil and coolant readouts turn red with their vote, and only then'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 60, stage: 'D', gear: 3, rpm: 2000, oil: 100, coolant: 90 };
+        dash.car.data = () => data;
+        const parts = dash.widgets.get('text').w.parts, oil = parts.find((p) => p.id === 'oil_v'), water = parts.find((p) => p.id === 'water_v');
+        const look = (p) => dash._partLook(p, Date.now()).split('|')[0];
+        const normal = look(oil);
+        data.oil = 132;
+        assert.notStrictEqual(look(oil), normal);
+        assert.strictEqual(look(water), normal);
+        data.oil = 100; data.coolant = 112;
+        assert.strictEqual(look(oil), normal);
+        assert.notStrictEqual(look(water), normal);
+    },
+    async 'every design can be picked in the menu in any order, with nothing refused or left behind'() {
+        const a = startApp({ screens: 'dash' });
+        await wait(SETTLE_MS);
+        for (const [design, target, n] of [['a', 'map', 5], ['b', 'map', 3], ['d', 'panel', 5], ['whole', 'panel', 5], ['c1', 'map', 4], ['c2', 'map', 3], ['c3', 'panel', 6], ['e1', 'map', 4], ['e2', 'map', 4], ['e3', 'panel', 6], ['b', 'map', 3], ['e2', 'map', 4], ['d', 'panel', 5]]) {
+            a.set('dashDesign', design);
+            await wait(200);
+            assert.deepStrictEqual(a.dash().targets(), [target], design);
+            assert.strictEqual(a.dash().layers.size, n, design);
+            assert.deepStrictEqual(a.dash().refused, [], design);
+        }
+        assert.deepStrictEqual(a.lines.filter((l) => /^ERROR|unusable/.test(l)).map((l) => l.slice(0, 160)), []);
+    },
+    async 'design B shows all six alerts on the map target, and its stripes go dark under them'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'b' });
+        await wait(SETTLE_MS);
+        const stripes = (l) => l.fs && /u_stripe/.test(l.fs), lit = () => a.dash().uniformsOf(stripes).u_alpha[0];
+        assert.strictEqual(lit(), 1);
+        for (const id of ['knock', 'fuel', 'afr', 'heat', 'boost', 'multi']) {
+            a.set('alertPreview', id);
+            await wait(150);
+            assert.strictEqual(a.dash().alertLayers().length, 3, id);
+            assert.strictEqual(counts.evas[1].alertLayout.name, 'EVA centre alert', id);
+        }
+        assert.strictEqual(lit(), 0);
+        assert.ok(a.dash().shown().some(stripes), 'the ground went away');
+        a.set('alertPreview', 'off');
+        await wait(200);
+        assert.strictEqual(lit(), 1);
+        assert.strictEqual(a.dash().shown().length, 3);
+        assert.deepStrictEqual(a.dash().refused, []);
+    },
+    async 'design B\'s middle shows the range, and with no range only its dim segments'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'b', demo: 'off' });
+        await wait(SETTLE_MS);
+        const hud = counts.evas[0], seven = () => a.dash().uniformsOf((l) => l.fs && /u_digits/.test(l.fs));
+        assert.deepStrictEqual(seven().u_digits, [-1, -1, -1, -1]);
+        assert.deepStrictEqual(seven().u_sepOn, [0]);
+        hud.rangeNow = 412; hud.rangeAt = Date.now();
+        await wait(150);
+        assert.deepStrictEqual(seven().u_digits, [4, 1, 2, 0]);
+        assert.deepStrictEqual(seven().u_sepAfter, [2]);
+        assert.deepStrictEqual(seven().u_colon, [0]);
+        assert.deepStrictEqual(seven().u_sepOn, [1]);
+        hud.rangeNow = 87; hud.rangeAt = Date.now();
+        await wait(150);
+        assert.deepStrictEqual(seven().u_digits, [-1, 8, 7, 0], 'no leading zero');
+    },
+    async 'design B\'s middle shows the time when the menu says so, at once, with the colon beating'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'b', demo: 'off', gmtOffset: '0' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], seven = () => a.dash().uniformsOf((l) => l.fs && /u_digits/.test(l.fs));
+        const layers = Array.from(a.dash().layers.keys()).join();
+        a.set('dashCenter', 'time');
+        await wait(150);
+        assert.strictEqual(Array.from(a.dash().layers.keys()).join(), layers, 'it should not redraw the layers');
+        const n = new Date(), want = [Math.floor(n.getUTCHours() / 10), n.getUTCHours() % 10, Math.floor(n.getUTCMinutes() / 10), n.getUTCMinutes() % 10];
+        assert.deepStrictEqual(seven().u_digits, want);
+        assert.deepStrictEqual(seven().u_sepAfter, [1]);
+        assert.deepStrictEqual(seven().u_colon, [1]);
+        assert.strictEqual(dash._token('b:title'), '現在時刻');
+        assert.strictEqual(dash._token('b:en'), 'LOCAL TIME');
+        assert.strictEqual(dash._token('b:unit'), '');
+        const beats = new Set();
+        for (let i = 0; i < 24; i++) { beats.add(seven().u_sepOn[0]); await wait(100); }
+        assert.deepStrictEqual(Array.from(beats).sort(), [0, 1], 'the colon should beat');
+        a.set('dashCenter', 'range');
+        await wait(150);
+        assert.strictEqual(dash._token('b:title'), '活動限界まで');
+        assert.strictEqual(dash._token('b:unit'), 'KM');
+    },
+    async 'design B sends its digits as a uniform, only when they change'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'b', demo: 'off' });
+        await wait(SETTLE_MS);
+        counts.evas[0].rangeNow = 412; counts.evas[0].rangeAt = Date.now();
+        await wait(150);
+        const n = a.dash().uniformCalls;
+        await wait(500);
+        assert.ok(a.dash().uniformCalls - n <= 2, (a.dash().uniformCalls - n) + ' uniforms for a steady range');
+    },
+    async 'design B\'s lamps follow the gear and the drive mode'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'b', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 60, stage: 'D', gear: 3, rpm: 2000, oil: 100, coolant: 90 };
+        dash.car.data = () => data;
+        drive(a, 'SPORT');
+        await wait(150);
+        const parts = dash.widgets.get('text').w.parts, on = () => parts.filter((p) => p.type === 'lamp' && dash._partLook(p, Date.now()).indexOf('lamp|on') === 0 && p.when !== 'always').map((p) => p.when).join();
+        assert.strictEqual(on(), 'sport');
+        data.stage = 'P';
+        drive(a, 'COMFORT');
+        await wait(150);
+        assert.strictEqual(on(), 'comfort');
+        data.stage = 'R';
+        drive(a, 'ECO PRO');
+        await wait(150);
+        assert.strictEqual(on(), 'eco');
+        const lamp = parts.find((p) => p.when === 'eco');
+        assert.notStrictEqual(dash._partPixels(lamp, 'lamp|on').compare(dash._partPixels(lamp, 'lamp|off')), 0);
+    },
+    async 'design B\'s small gear shows a letter or a digit, and its stripes turn red with a rejected temperature'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'b', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 60, stage: 'D', gear: 3, rpm: 2000, oil: 100, coolant: 90 };
+        dash.car.data = () => data;
+        const stripes = () => a.dash().uniformsOf((l) => l.fs && /u_stripe/.test(l.fs)).u_stripe;
+        await wait(100);
+        assert.strictEqual(dash._token('gearshort'), '3');
+        const normal = stripes().join();
+        data.oil = 132;
+        await wait(100);
+        assert.notStrictEqual(stripes().join(), normal);
+        data.oil = 100; data.speed = 0;
+        await wait(100);
+        assert.strictEqual(stripes().join(), normal);
+        assert.strictEqual(dash._token('gearshort'), 'D');
+        ['P', 'R', 'N'].forEach((k) => { data.stage = k; assert.strictEqual(dash._token('gearshort'), k); });
+    },
+    async 'design D covers the cluster and shows the alert as the original does'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'd', alertPreview: 'heat' });
+        await wait(300);
+        assert.deepStrictEqual(a.dash().targets(), ['panel']);
+        assert.strictEqual(a.dash().alertLayers().length, 3);
+        assert.deepStrictEqual(a.dash().refused, []);
+        assert.strictEqual(counts.evas[1].alertLayout.name, 'EVA dash alert');
+        a.set('alertPreview', 'off');
+        await wait(300);
+        assert.strictEqual(a.dash().alertLayers().length, 0);
+        assert.strictEqual(a.dash().shown().length, 5);
+        assert.deepStrictEqual(a.dash().refused, []);
+    },
+    async 'design D gives way to a BMW pop-up, as the whole cluster has to'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'd', demo: 'off' });
+        await wait(SETTLE_MS);
+        popup('202', true);
+        await wait(250);
+        assert.strictEqual(counts.evas[1].givingWay, true);
+        assert.strictEqual(a.dash().shown().length, 0);
+    },
+    async 'design D\'s gear frame has the owner\'s words, and its revs follow the car'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'd', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 60, stage: 'R', gear: -1, rpm: 3200, oil: 100, coolant: 90 };
+        dash.car.data = () => data;
+        const x = dash.widgets.get('gear');
+        assert.deepStrictEqual([dash._gearFor(x.w).kind, dash._gearFor(x.w).text], ['word', '緊急撤退']);
+        await wait(600);
+        assert.strictEqual(dash._token('rpm'), String(dash.rpmShown));
+        assert.ok(/^\d+$/.test(dash._token('rpm')), dash._token('rpm'));
+    },
+    async 'with a drive mode set to off, no alert shows and the engine unit is left alone'() {
+        const a = startApp({ screens: 'drive', comfortScreens: 'hud', ecoScreens: 'off', alertPreview: 'heat' });
+        await wait(SETTLE_MS);
+        drive(a, 'ECO PRO');
+        await wait(300);
+        assert.strictEqual(a.hud().alertLayers().length + a.dash().alertLayers().length, 0);
+        assert.strictEqual(counts.evas[0]._wantDiag(), null);
+    },
+    async 'the status names the drive mode under By drive mode'() {
+        const a = startApp({ screens: 'drive', sportScreens: 'dash', sportDash: 'a' });
+        await wait(SETTLE_MS);
+        drive(a, 'SPORT');
+        await wait(200);
+        assert.ok(/Sport/i.test(counts.evas[1].statusText()), counts.evas[1].statusText());
+    },
+    async 'any other Mode ignores the drive modes\' choices'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'a', sportScreens: 'off', sportDash: 'b' });
+        await wait(SETTLE_MS);
+        drive(a, 'SPORT');
+        await wait(200);
+        assert.deepStrictEqual(a.dash().targets(), ['map']);
+        assert.strictEqual(a.dash().layers.size, 5);
+    },
+    async 'the everyday designs\' ground is plain black, and design A keeps its hex lines'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'c1' });
+        await wait(SETTLE_MS);
+        const lines = () => a.dash().uniformsOf((l) => l.fs && /u_cell/.test(l.fs)).u_alpha[0];
+        assert.strictEqual(lines(), 0);
+        a.set('dashDesign', 'a');
+        await wait(200);
+        assert.ok(lines() > 0);
+    },
+    async 'design B\'s power lamp says where the power comes from'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'b', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 60, stage: 'D', gear: 3, rpm: 2000, oil: 100, coolant: 90 };
+        dash.car.data = () => data;
+        const lamp = dash.widgets.get('text').w.parts.find((p) => p.when === 'always');
+        const look = () => dash._partLook(lamp, Date.now());
+        assert.strictEqual(look(), 'lamp|on|内部電源');
+        const moving = dash._partPixels(lamp, look());
+        data.stage = 'P';
+        assert.strictEqual(look(), 'lamp|on|外部電源');
+        assert.notStrictEqual(dash._partPixels(lamp, look()).compare(moving), 0, 'the two states look the same');
+    },
+    async 'E1\'s bar follows the fuel use and not the revs, and stays empty where there is no reading'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'e1', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 100, stage: 'D', gear: 6, rpm: 6900, oil: 100, coolant: 90 };
+        dash.car.data = () => data;
+        dash.readings.burn = { v: 10, at: Date.now() };
+        await wait(150);
+        const seg = () => a.dash().uniformsOf((l) => l.fs && /u_strobe/.test(l.fs));
+        assert.deepStrictEqual(seg().u_value, [0.5], '10 L/100km is half of the bar');
+        assert.deepStrictEqual(seg().u_strobe, [0], 'it should not strobe at the shift point');
+        data.stage = 'P';
+        await wait(150);
+        assert.deepStrictEqual(seg().u_value, [0]);
+    },
+    async 'E2\'s rings light outward with the fuel use, by uniform, and go out with no reading'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'e2', demo: 'off' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 100, stage: 'D', gear: 6, rpm: 2000, oil: 100, coolant: 90 };
+        dash.car.data = () => data;
+        const lit = () => a.dash().uniformsOf((l) => l.fs && /u_lit/.test(l.fs)).u_lit[0];
+        assert.strictEqual(lit(), 0);
+        dash.readings.burn = { v: 10, at: Date.now() };
+        await wait(150);
+        assert.strictEqual(lit(), 4);
+        dash.readings.burn = { v: 40, at: Date.now() };
+        await wait(150);
+        assert.strictEqual(lit(), 7);
+        const n = a.dash().uniformCalls;
+        await wait(400);
+        assert.ok(a.dash().uniformCalls - n <= 2, 'a steady fuel use keeps sending');
+        data.stage = 'P';
+        await wait(150);
+        assert.strictEqual(lit(), 0);
+    },
+    async 'the fuel use is read while a design shows it, and only then, on the move'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'e1', demo: 'off' });
+        await wait(SETTLE_MS);
+        const hud = counts.evas[0], data = { speed: 100, stage: 'D', gear: 6, rpm: 2000, oil: 100, coolant: 90 };
+        hud.car.data = () => data;
+        assert.strictEqual(hud._wantDiag().burn, true);
+        data.stage = 'P';
+        assert.strictEqual(hud._wantDiag().burn, false);
+        data.stage = 'D';
+        for (const [design, want] of [['e2', true], ['e3', true], ['a', false], ['c1', false]]) {
+            a.set('dashDesign', design);
+            await wait(200);
+            assert.strictEqual(hud._wantDiag().burn, want, design);
+        }
+    },
+    async 'E3 shows the range even when design B\'s middle is set to the time'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'e3', dashCenter: 'time', demo: 'off' });
+        await wait(SETTLE_MS);
+        const hud = counts.evas[0];
+        hud.rangeNow = 412; hud.rangeAt = Date.now();
+        await wait(150);
+        const seven = a.dash().uniformsOf((l) => l.fs && /u_digits/.test(l.fs));
+        assert.deepStrictEqual(seven.u_digits, [4, 1, 2, 0]);
+        assert.deepStrictEqual(seven.u_colon, [0]);
+    },
+    async 'C2 draws each line in the font that fills the shape with it'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'c2', demo: 'off', motto: 'run' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], p = dash.widgets.get('text').w.parts.find((q) => q.id === 'row1');
+        const look = dash._partLook(p, Date.now());
+        const big = dash._partPixels(p, look);
+        a.set('motto', 'heaven');
+        await wait(150);
+        assert.notStrictEqual(dash._partPixels(p, look).compare(big), 0, 'the same words should be sized for this line');
+        assert.deepStrictEqual(a.dash().refused, []);
+    },
+    async 'in P, R and N the line steps aside for the big word, and its small line says what the word means'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'c1', demo: 'off', motto: 'heaven' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], data = { speed: 60, stage: 'D', gear: 3, rpm: 2000 };
+        dash.car.data = () => data;
+        const parts = dash.widgets.get('text').w.parts, row = parts.find((p) => p.id === 'motto1');
+        const says = () => dash._partLook(row, Date.now()).split('|')[1];
+        assert.strictEqual(says(), '神ハ天ニ在リ');
+        assert.strictEqual(dash._token('msub'), "GOD'S IN HIS HEAVEN // ALL'S RIGHT WITH THE WORLD");
+        data.stage = 'P';
+        assert.strictEqual(says(), '');
+        assert.strictEqual(dash._token('msub'), 'SORTIE STANDBY // 拘束具固定');
+    },
+    async 'C3 gives its vertical cells one character each, with the long vowel mark standing up'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'c3', demo: 'off', motto: 'field' });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], at = (r, i) => dash._token('mv:' + r + ':' + i);
+        assert.strictEqual(['0', '1', '2', '3', '4', '5', '6', '7', '8'].map((i) => at(1, i)).join(''), 'A.T.フィ｜ルド');
+        assert.strictEqual(at(1, 9), '');
+        a.set('motto', 'project');
+        assert.strictEqual(['0', '1', '2', '3', '4', '5', '6'].map((i) => at(2, i)).join(''), '第3段階進行中', 'the space is left out');
+    },
+    async 'every design shows every alert with nothing refused, and comes back to the same layers'() {
+        for (const design of ['c1', 'c2', 'c3', 'e1', 'e2', 'e3']) {
+            const a = startApp({ screens: 'dash', dashDesign: design });
+            await wait(SETTLE_MS);
+            const n = a.dash().shown().length;
+            for (const id of ['knock', 'multi']) {
+                a.set('alertPreview', id);
+                await wait(120);
+                assert.strictEqual(a.dash().alertLayers().length, 3, design + ' ' + id);
+                assert.ok(a.dash().layers.size <= 8, design + ': ' + a.dash().layers.size + ' layers');
+            }
+            a.set('alertPreview', 'off');
+            await wait(250);
+            assert.strictEqual(a.dash().shown().length, n, design);
+            assert.deepStrictEqual(a.dash().refused, [], design);
+            assert.deepStrictEqual(a.lines.filter((l) => /^ERROR|unusable/.test(l)).map((l) => l.slice(0, 160)), [], design);
+            counts.evas.forEach((e) => e.stop && e.stop());
+        }
+    },
+    async 'HUD only: each drive mode shows the HUD picked for it, and Off leaves it to BMW'() {
+        const a = startApp({ screens: 'hud', demo: 'off' });
+        await wait(SETTLE_MS);
+        const hud = counts.evas[0], at = async (mode) => { drive(a, mode); await wait(200); return hud.activeName; };
+        assert.strictEqual(await at('SPORT'), 'hud_only_sport');
+        assert.strictEqual(await at('COMFORT'), 'hud_only_comfort');
+        assert.strictEqual(await at('ECO PRO'), 'hud_only_eco', 'by default each drive mode has its own');
+        a.set('hudEco', 'sport');
+        a.set('hudSport', 'comfort');
+        await wait(200);
+        assert.strictEqual(hud.activeName, 'hud_only_sport');
+        assert.strictEqual(await at('SPORT'), 'hud_only_comfort');
+        a.set('hudComfort', 'off');
+        assert.strictEqual(await at('COMFORT'), 'off');
+        assert.strictEqual(a.hud().layers.size, 0);
+        assert.strictEqual(a.dash().layers.size, 0);
+    },
+    async 'Dash only: each drive mode shows the dash picked for it, and Off leaves it to BMW'() {
+        const a = startApp({ screens: 'dash', dashComfort: 'c2', dashSport: 'a', dashEco: 'e2', _menuV: 2 });
+        await wait(SETTLE_MS);
+        const dash = counts.evas[1], at = async (mode) => { drive(a, mode); await wait(200); return dash.activeName; };
+        assert.strictEqual(await at('SPORT'), 'a');
+        assert.deepStrictEqual(a.dash().targets(), ['map']);
+        assert.strictEqual(await at('COMFORT'), 'c2');
+        assert.strictEqual(await at('ECO PRO'), 'e2');
+        assert.strictEqual(a.hud().layers.size, 0);
+        a.set('dashEco', 'off');
+        await wait(200);
+        assert.strictEqual(dash.activeName, 'off');
+        assert.strictEqual(a.dash().layers.size, 0);
+        assert.strictEqual(a.hud().layers.size, 0);
+    },
+    async 'HUD + Dash: each drive mode has its own pair, separate from the other modes\' choices'() {
+        const a = startApp({ screens: 'both', demo: 'off', _menuV: 2, hudSport: 'eco', dashSport: 'c2',
+            bothHudComfort: 'comfort', bothDashComfort: 'c1', bothHudSport: 'eva', bothDashSport: 'a', bothHudEco: 'off', bothDashEco: 'e3' });
+        await wait(SETTLE_MS);
+        const hud = counts.evas[0], dash = counts.evas[1];
+        const at = async (mode) => { drive(a, mode); await wait(250); return [hud.activeName, dash.activeName]; };
+        assert.deepStrictEqual(await at('SPORT'), ['eva', 'a']);
+        assert.deepStrictEqual(a.hud().targets(), ['hud']);
+        assert.deepStrictEqual(a.dash().targets(), ['map']);
+        assert.deepStrictEqual(await at('COMFORT'), ['hud_only_comfort', 'c1']);
+        assert.deepStrictEqual(await at('ECO PRO'), ['off', 'e3']);
+        assert.strictEqual(a.hud().layers.size, 0);
+        assert.deepStrictEqual(a.dash().targets(), ['panel']);
+        assert.deepStrictEqual(a.hud().refused.concat(a.dash().refused), []);
+    },
+    async 'changing one screen\'s picture leaves the other screen alone'() {
+        const a = startApp({ screens: 'both', demo: 'off', _menuV: 2 });
+        await wait(SETTLE_MS);
+        drive(a, 'SPORT');
+        await wait(250);
+        const hudLayers = Array.from(a.hud().layers.keys()).join();
+        a.set('bothDashSport', 'a');
+        await wait(200);
+        assert.strictEqual(counts.evas[1].activeName, 'a');
+        assert.strictEqual(Array.from(a.hud().layers.keys()).join(), hudLayers, 'changing the dash redrew the HUD');
+        const dashLayers = Array.from(a.dash().layers.keys()).join();
+        a.set('bothHudSport', 'sport');
+        await wait(200);
+        assert.strictEqual(counts.evas[0].activeName, 'hud_only_sport');
+        assert.strictEqual(Array.from(a.dash().layers.keys()).join(), dashLayers, 'changing the HUD redrew the dash');
+    },
+    async 'before the car names a drive mode, Comfort\'s picture shows'() {
+        const a = startApp({ screens: 'both', demo: 'off', _menuV: 2, bothHudComfort: 'comfort', bothDashComfort: 'c2', bothHudSport: 'sport', bothDashSport: 'a' });
+        await wait(SETTLE_MS);
+        assert.strictEqual(counts.evas[0].activeName, 'hud_only_comfort');
+        assert.strictEqual(counts.evas[1].activeName, 'c2');
+    },
+    async 'a picture for another mode or drive mode changes nothing on the screens'() {
+        const a = startApp({ screens: 'hud', demo: 'off', _menuV: 2 });
+        await wait(SETTLE_MS);
+        drive(a, 'COMFORT');
+        await wait(250);
+        const layers = Array.from(a.hud().layers.keys()).join();
+        ['bothHudComfort', 'hudSport', 'hudEco'].forEach((k) => a.set(k, 'sport'));
+        a.set('dashComfort', 'a');
+        a.set('bothDashComfort', 'b');
+        await wait(200);
+        assert.strictEqual(Array.from(a.hud().layers.keys()).join(), layers);
+        assert.strictEqual(a.dash().layers.size, 0);
+    },
+    async 'the menu shows only the rows the Mode asks for, at the start and at each change'() {
+        const a = startApp({ screens: 'dash', _menuV: 2, dashComfort: 'a' });
+        await wait(SETTLE_MS);
+        const hud = counts.evas[0], rows = () => hud._menuRows();
+        ['SET_DASHCOMFORT', 'SET_DASHSPORT', 'SET_DASHECO'].forEach((k) => assert.strictEqual(rows()[k], true, k));
+        ['SET_HUDCOMFORT', 'SET_HUDECO', 'SET_BOTHHUDSPORT', 'SET_BOTHDASHECO', 'SET_DASHCENTER'].forEach((k) => assert.strictEqual(rows()[k], false, k));
+        assert.strictEqual(rows().SET_MOTTO, undefined, 'a row with no rule is left alone');
+        const seen = {}, real = hud.ctx.ui.visible;
+        hud.ctx.ui.visible = (name, on) => { seen[name] = on; return real.call(hud.ctx.ui, name, on); };
+        a.set('dashEco', 'b');
+        assert.deepStrictEqual(seen, { SET_DASHCENTER: true }, 'only the row that changed is sent');
+        Object.keys(seen).forEach((k) => delete seen[k]);
+        a.set('screens', 'both');
+        assert.strictEqual(seen.SET_BOTHHUDECO, true);
+        assert.strictEqual(seen.SET_BOTHDASHECO, true);
+        assert.strictEqual(seen.SET_DASHECO, false);
+        assert.strictEqual(seen.SET_DASHCENTER, false);
+    },
+    async 'settings from 0.5.0 carry over once: the Dash only design and the HUD + Dash pair fill every drive mode'() {
+        const a = startApp({ screens: 'dash', dashDesign: 'b', hudDesign: 'comfort', bothHud: 'follow', bothDash: 'e2' });
+        await wait(SETTLE_MS);
+        const get = (k) => counts.evas[0].ctx.settings.get(k);
+        ['Comfort', 'Sport', 'Eco'].forEach((m) => {
+            assert.strictEqual(get('dash' + m), 'b', m);
+            assert.strictEqual(get('hud' + m), 'comfort', m);
+            assert.strictEqual(get('bothDash' + m), 'e2', m);
+        });
+        assert.deepStrictEqual(['Comfort', 'Sport', 'Eco'].map((m) => get('bothHud' + m)), ['comfort', 'sport', 'eco'], 'follow means each its own');
+        assert.strictEqual(counts.evas[1].activeName, 'b');
+        a.set('dashSport', 'a');
+        const hud = counts.evas[0];
+        hud._migrateMenu();
+        assert.strictEqual(get('dashSport'), 'a', 'a later choice is not undone');
+    },
+    async 'By drive mode from 0.5.0 carries over as HUD + Dash with the same result in each drive mode'() {
+        const a = startApp({ screens: 'drive', comfortScreens: 'hud', sportScreens: 'dash', sportDash: 'a', ecoScreens: 'both', ecoDash: 'e2' });
+        await wait(SETTLE_MS);
+        const hud = counts.evas[0], dash = counts.evas[1], get = (k) => hud.ctx.settings.get(k);
+        assert.strictEqual(get('screens'), 'both');
+        const at = async (mode) => { drive(a, mode); await wait(250); return [hud.activeName, dash.activeName]; };
+        assert.deepStrictEqual(await at('COMFORT'), ['hud_only_comfort', 'off']);
+        assert.deepStrictEqual(await at('SPORT'), ['off', 'a']);
+        assert.deepStrictEqual(await at('ECO PRO'), ['eva', 'e2']);
+    },
+    async 'the demo goes through every alert on its screens, as a real alert looks, and starts over'() {
+        const a = startApp({ screens: 'both', demo: 'on', _menuV: 2 });
+        await wait(SETTLE_MS);
+        const hud = counts.evas[0], dash = counts.evas[1], sim = hud.car.sim, at = async (ms) => { sim.t0 = Date.now() - ms; await wait(130); };
+        assert.strictEqual(typeof sim.alertAt, 'function', 'not the EVA demo drive');
+        await at(1000);
+        assert.strictEqual(hud.alertKey, null, 'no alert while it drives');
+        for (const [ms, id] of [[10100, 'knock'], [12100, 'fuel'], [14100, 'afr'], [16100, 'heat'], [18100, 'boost'], [20100, 'multi']]) {
+            await at(ms);
+            assert.strictEqual(hud.alertKey, id, ms + ' ms');
+            assert.strictEqual(dash.alertKey, id, 'the dash at ' + ms + ' ms');
+            assert.strictEqual(hud._token('a:tag'), 'MAGI SYSTEM WARNING', 'it should look real, not a preview');
+            assert.ok(hud._token('a:value') !== '', id + ' has no value');
+        }
+        await at(100);
+        assert.strictEqual(hud.alertKey, null, 'the round starts over');
+        assert.deepStrictEqual(a.hud().refused.concat(a.dash().refused), []);
+    },
+    async 'the demo\'s alerts obey the alerts switch, and a preview comes first'() {
+        const a = startApp({ screens: 'hud', demo: 'on', _menuV: 2, alertsOn: false });
+        await wait(SETTLE_MS);
+        const hud = counts.evas[0];
+        hud.car.sim.t0 = Date.now() - 10100;
+        await wait(130);
+        assert.strictEqual(hud.alertKey, null, 'Full-screen alerts is off');
+        a.set('alertsOn', true);
+        await wait(130);
+        assert.strictEqual(hud.alertKey, 'knock');
+        a.set('alertPreview', 'boost');
+        await wait(130);
+        assert.strictEqual(hud.alertKey, 'boost');
+        assert.strictEqual(hud._token('a:tag'), 'PREVIEW');
+    },
+    async 'with the demo off a real car shows no demo alert'() {
+        const a = startApp({ screens: 'hud', demo: 'off', _menuV: 2 });
+        await wait(SETTLE_MS);
+        const hud = counts.evas[0];
+        hud.car.sim.t0 = Date.now() - 10100;
+        await wait(130);
+        assert.strictEqual(hud.alertKey, null);
     },
     async 'a dash that cannot start leaves the HUD running and says so'() {
         const a = startApp({ screens: 'both' }, { dashThrows: true });

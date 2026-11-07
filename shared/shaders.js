@@ -349,7 +349,7 @@ void main() {
 `;
 
 const EVAFRAME = `// The EVA HUD's gear frame: a thin line, inset, and heavy brackets on the outer corners.
-//   u_color rgb, u_lineA line alpha, u_cornerA bracket alpha, u_inset px, u_corner bracket length px, u_weight line thickness x
+//   u_color rgb, u_lineA line alpha, u_cornerA bracket alpha, u_inset px, u_corner bracket length px, u_weight the brackets' thickness x, u_lineW the line's thickness px
 precision mediump float;
 varying vec2 v_uv;
 uniform vec2 u_size;
@@ -359,6 +359,7 @@ uniform float u_cornerA;
 uniform float u_inset;
 uniform float u_corner;
 uniform float u_weight;
+uniform float u_lineW;
 
 void main() {
     vec2 p = v_uv * u_size;
@@ -366,7 +367,7 @@ void main() {
     float a = 0.0;
     bool nearX = e.x < u_corner, nearY = e.y < u_corner;
     if ((e.x < 3.0 * u_weight && nearY) || (e.y < 3.0 * u_weight && nearX)) a = u_cornerA;
-    else if (min(e.x, e.y) >= u_inset && min(e.x, e.y) < u_inset + 2.0 * u_weight) a = u_lineA;
+    else if (min(e.x, e.y) >= u_inset && min(e.x, e.y) < u_inset + u_lineW) a = u_lineA;
     gl_FragColor = vec4(u_color, a);
 }
 `;
@@ -420,4 +421,150 @@ void main() {
 }
 `;
 
-module.exports = { evacorners: EVACORNERS, evasolo: EVASOLO, shiftbar: SHIFTBAR, arc: ARC, revbar: REVBAR, lights: LIGHTS, fill: FILL, box: BOX, grid: GRID, evaseg: EVASEG, evaframe: EVAFRAME };
+const EVAHEX = `// The ground of the dash: black, with a faint honeycomb if asked, and opaque, so nothing shows through it.
+//   u_color rgb, u_alpha the lines' strength (0: plain black), u_cell a hexagon's side px
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+varying vec2 v_uv;
+uniform vec2 u_size;
+uniform vec3 u_color;
+uniform float u_alpha;
+uniform float u_cell;
+
+void main() {
+    vec2 p = v_uv * u_size / u_cell;
+    vec2 s = vec2(1.7320508, 3.0);
+    vec2 a = mod(p, s) - s * 0.5;
+    vec2 b = mod(p - s * 0.5, s) - s * 0.5;
+    vec2 g = abs(dot(a, a) < dot(b, b) ? a : b);     // from the nearest hexagon's centre
+    float edge = 0.8660254 - max(g.x, g.x * 0.5 + g.y * 0.8660254);
+    float line = 1.0 - smoothstep(0.75 / u_cell, 1.5 / u_cell, edge);
+    gl_FragColor = vec4(u_color * line * u_alpha, 1.0);
+}
+`;
+
+const EVAHAZARD = `// The ground of the dash's design B: black, opaque, with hazard stripes along the top and the bottom.
+//   u_stripe rgb, u_alpha 1 or 0 (0 in an alert: plain black), u_h the stripes' height px
+precision mediump float;
+varying vec2 v_uv;
+uniform vec2 u_size;
+uniform vec3 u_stripe;
+uniform float u_alpha;
+uniform float u_h;
+
+void main() {
+    vec2 p = v_uv * u_size;
+    float on = p.y < u_h || p.y > u_size.y - u_h ? step(mod(p.x + p.y, 36.0), 18.0) : 0.0;
+    gl_FragColor = vec4(u_stripe * on * u_alpha, 1.0);
+}
+`;
+
+const EVASEVEN = `// Four seven-segment digits and a dot or a colon, as the show's countdown has them. The digits change by uniform: no pixels.
+//   u_digits 0-9, or below 0 for only the dim segments. u_sepAfter the digit the separator follows, u_colon 0 a dot, 1 a colon,
+//   u_sepOn 0 or 1, u_color rgb, u_off the dim segments' alpha, u_margin px around the digits for the glow
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+varying vec2 v_uv;
+uniform vec2 u_size;
+uniform vec4 u_digits;
+uniform float u_sepAfter;
+uniform float u_colon;
+uniform float u_sepOn;
+uniform vec3 u_color;
+uniform float u_off;
+uniform float u_margin;
+const float DW = 108.0, DH = 180.0, GAP = 18.0, T = 20.0, SEP = 24.0;
+
+// segments a to g as the bits 1, 2, 4 ... 64
+float codeOf(float d) {
+    if (d < -0.5) return 0.0;
+    if (d < 0.5) return 63.0;
+    if (d < 1.5) return 6.0;
+    if (d < 2.5) return 91.0;
+    if (d < 3.5) return 79.0;
+    if (d < 4.5) return 102.0;
+    if (d < 5.5) return 109.0;
+    if (d < 6.5) return 125.0;
+    if (d < 7.5) return 7.0;
+    if (d < 8.5) return 127.0;
+    return 111.0;
+}
+float bitOf(float code, float value) { return mod(floor(code / value), 2.0); }
+float flat_(vec2 q, float len) { return max(abs(q.y) - T * 0.5, abs(q.x) + abs(q.y) - len); }
+float tall(vec2 q, float len) { return max(abs(q.x) - T * 0.5, abs(q.y) + abs(q.x) - len); }
+
+void main() {
+    vec2 p = v_uv * u_size - vec2(u_margin);
+    float sepX = (u_sepAfter + 1.0) * (DW + GAP) - 8.0;
+    bool after = p.x > sepX + T;
+    float x = after ? p.x - SEP : p.x;
+    // each side of the separator keeps to its own digits: the next digit's left side must not reach into the separator's column
+    float i = clamp(floor((x + GAP * 0.5) / (DW + GAP)), after ? u_sepAfter + 1.0 : 0.0, after ? 3.0 : u_sepAfter);
+    vec2 q = vec2(x - i * (DW + GAP), p.y);
+    float digit = i < 0.5 ? u_digits.x : i < 1.5 ? u_digits.y : i < 2.5 ? u_digits.z : u_digits.w;
+    float code = codeOf(digit);
+    float hl = DW * 0.5 - 2.0, vl = DH * 0.25 - 2.0;
+    float d[7];
+    d[0] = flat_(q - vec2(DW * 0.5, T * 0.5), hl);
+    d[1] = tall(q - vec2(DW - T * 0.5, DH * 0.25), vl);
+    d[2] = tall(q - vec2(DW - T * 0.5, DH * 0.75), vl);
+    d[3] = flat_(q - vec2(DW * 0.5, DH - T * 0.5), hl);
+    d[4] = tall(q - vec2(T * 0.5, DH * 0.75), vl);
+    d[5] = tall(q - vec2(T * 0.5, DH * 0.25), vl);
+    d[6] = flat_(q - vec2(DW * 0.5, DH * 0.5), hl);
+    float lit = 1000.0, dim = 1000.0, value = 1.0;
+    for (int k = 0; k < 7; k++) {
+        if (bitOf(code, value) > 0.5) lit = min(lit, d[k]); else dim = min(dim, d[k]);
+        value *= 2.0;
+    }
+    float a = max(1.0 - smoothstep(-0.5, 0.5, dim), 0.0) * u_off;
+    a = max(a, 1.0 - smoothstep(-0.5, 0.5, lit));
+    a = max(a, exp(-max(lit, 0.0) / 8.0) * 0.45 * step(lit, 40.0));
+    if (u_sepOn > 0.5) {
+        vec2 c = p - vec2(sepX + T * 0.5, 0.0);
+        float s = u_colon > 0.5 ? min(max(abs(c.x), abs(c.y - DH * 0.34)), max(abs(c.x), abs(c.y - DH * 0.72))) : max(abs(c.x), abs(c.y - (DH - T * 0.5)));
+        s -= T * 0.5;
+        a = max(a, 1.0 - smoothstep(-0.5, 0.5, s));
+        a = max(a, exp(-max(s, 0.0) / 8.0) * 0.45 * step(s, 40.0));
+    }
+    gl_FragColor = vec4(u_color, a);
+}
+`;
+
+const EVARINGS = `// Design E2's rings of hexagons, lit from the inside out as the fuel use climbs. They change by uniform: no pixels.
+//   u_color rgb, u_hot rgb of the outer rings, u_hotFrom the first hot ring, u_lit how many are lit, u_r0 the inner ring's radius px, u_step px between rings
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+varying vec2 v_uv;
+uniform vec2 u_size;
+uniform vec3 u_color;
+uniform vec3 u_hot;
+uniform float u_hotFrom;
+uniform float u_lit;
+uniform float u_r0;
+uniform float u_step;
+const float COS30 = 0.8660254;
+
+void main() {
+    vec2 p = abs(v_uv * u_size - u_size * 0.5);
+    float d = max(p.y, p.x * COS30 + p.y * 0.5);     // 0 at the middle, a hexagon's flat side at its own distance
+    float i = clamp(floor((d / COS30 - u_r0) / u_step + 0.5), 0.0, 6.0);     // the nearest ring
+    float e = abs(d - (u_r0 + i * u_step) * COS30);
+    bool on = i + 0.5 < u_lit;
+    float half_ = on ? 2.5 : 1.0;
+    float a = (1.0 - smoothstep(half_ - 0.75, half_ + 0.75, e)) * (on ? 1.0 : 0.2);
+    if (on) a = max(a, exp(-e / 4.0) * 0.4);
+    gl_FragColor = vec4(on && i >= u_hotFrom ? u_hot : u_color, a);
+}
+`;
+
+module.exports = { evarings: EVARINGS, evaseven: EVASEVEN, evahazard: EVAHAZARD, evahex: EVAHEX, evacorners: EVACORNERS, evasolo: EVASOLO, shiftbar: SHIFTBAR, arc: ARC, revbar: REVBAR, lights: LIGHTS, fill: FILL, box: BOX, grid: GRID, evaseg: EVASEG, evaframe: EVAFRAME };
